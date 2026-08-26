@@ -14,9 +14,11 @@
     "typecheck": "tsc -p tsconfig.tools.json --noEmit",
     "electron": "node tools/start.mjs",
     "test:smoke": "tsc -p tsconfig.tools.json && node dist-tools/test/smoke-pipeline.js",
-    "test:ui": "npm run build && node tools/start.mjs --eval test/ui/interactions.js"
+    "test:ui": "npm run build && node tools/start.mjs --eval test/ui/interactions.js",
+    "gen-icons": "node tools/gen-icons.mjs"
   },
   "devDependencies": {
+    "@gravity-ui/icons": "^2.22.0",
     "@types/node": "^26.3.0",
     "electron": "^33.4.11",
     "esbuild": "^0.28.2",

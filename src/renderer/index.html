@@ -16,24 +16,26 @@
        window drag region; controls opt back out. -->
   <header class="toolbar">
     <div class="toolbar-group playback">
-      <button id="btn-play" class="sui-button dense" disabled title="再生 (⌘⏎)">再生</button>
-      <button id="btn-play-all" class="sui-button sui-tertiary dense" disabled title="すべて再生 (⇧⌘⏎)">すべて再生</button>
-      <button id="btn-stop" class="sui-button sui-tertiary dense" disabled title="停止 (esc)">停止</button>
+      <button id="btn-play" class="sui-button dense" data-icon="play" disabled title="再生 (⌘⏎)">再生</button>
+      <button id="btn-play-all" class="sui-button sui-tertiary dense" data-icon="playAll" disabled title="すべて再生 (⇧⌘⏎)">すべて再生</button>
+      <button id="btn-stop" class="sui-button sui-tertiary dense" data-icon="stop" disabled title="停止 (esc)">停止</button>
     </div>
 
     <label class="toolbar-field">
-      <span>音声モデル</span>
+      <span class="field-label" data-icon="voice">音声モデル</span>
       <select id="voice-select" class="sui-select dense"></select>
     </label>
 
     <span class="spacer"></span>
 
     <div class="toolbar-group">
-      <button id="btn-export-wav" class="sui-button sui-tertiary dense" disabled title="WAV を書き出す (⌘E)">WAV</button>
-      <button id="btn-export-lab" class="sui-button sui-tertiary dense" disabled title="ラベルを書き出す">ラベル</button>
-      <button id="btn-open" class="sui-button sui-shy dense" title="開く (⌘O)">開く</button>
-      <button id="btn-save" class="sui-button sui-shy dense" title="保存 (⌘S)">保存</button>
-      <button id="btn-settings" class="sui-button sui-shy dense" title="設定 (⌘,)">設定</button>
+      <button id="btn-export-wav" class="sui-button sui-tertiary dense icon-only" data-icon="exportWav" disabled
+              title="WAV を書き出す (⌘E)" aria-label="WAV を書き出す"></button>
+      <button id="btn-export-lab" class="sui-button sui-tertiary dense icon-only" data-icon="exportLabel" disabled
+              title="ラベルを書き出す" aria-label="ラベルを書き出す"></button>
+      <button id="btn-open" class="sui-button sui-shy dense icon-only" data-icon="open" title="開く (⌘O)" aria-label="開く"></button>
+      <button id="btn-save" class="sui-button sui-shy dense icon-only" data-icon="save" title="保存 (⌘S)" aria-label="保存"></button>
+      <button id="btn-settings" class="sui-button sui-shy dense icon-only" data-icon="settings" title="設定 (⌘,)" aria-label="設定"></button>
     </div>
   </header>
 
@@ -41,7 +43,7 @@
     <aside class="pane sidebar">
       <div class="pane-head">
         <h2>台本</h2>
-        <button id="btn-add-line" class="sui-button sui-shy icon-only" title="行を追加 (⌘N)" aria-label="行を追加">＋</button>
+        <button id="btn-add-line" class="sui-button sui-shy icon-only" data-icon="add" title="行を追加 (⌘N)" aria-label="行を追加"></button>
       </div>
       <ul id="script-list" class="script-list"></ul>
       <p class="sidebar-hint sui-helper-text">ドラッグで並べ替え / テキストや .htsvoice をドロップ</p>
@@ -51,13 +53,13 @@
       <div class="text-row">
         <textarea id="text-input" class="sui-textarea" rows="2"
                   placeholder="テキストを入力して Enter で解析（Shift+Enter で改行）"></textarea>
-        <button id="btn-analyze" class="sui-button dense" title="解析 (⌘R)">解析</button>
+        <button id="btn-analyze" class="sui-button dense" data-icon="analyze" title="解析 (⌘R)">解析</button>
       </div>
 
       <div class="pane-head">
         <h2>アクセント</h2>
         <p class="sui-helper-text head-hint">
-          モーラ = アクセント核 / ダブルクリック = 読み / 区切り = 分割・結合・ポーズ
+          クリックでアクセント核、ダブルクリックで読み、区切りで分割・結合・ポーズ
         </p>
       </div>
 
@@ -67,7 +69,7 @@
     <aside class="pane params-pane">
       <div class="pane-head">
         <h2>パラメータ</h2>
-        <button id="btn-reset-params" class="sui-button sui-shy icon-only" title="既定値に戻す" aria-label="既定値に戻す">⟲</button>
+        <button id="btn-reset-params" class="sui-button sui-shy icon-only" data-icon="reset" title="既定値に戻す" aria-label="既定値に戻す"></button>
       </div>
       <div id="params" class="params"></div>
     </aside>
@@ -81,6 +83,7 @@
 
   <div id="drop-overlay" class="drop-overlay">
     <div class="drop-panel">
+      <span class="drop-glyph" data-icon="drop"></span>
       <p id="drop-message" class="drop-title"></p>
     </div>
   </div>
@@ -105,11 +108,19 @@
         <input type="text" id="set-dictionary" class="sui-input" placeholder="自動検出">
         <button type="button" class="sui-button sui-tertiary dense" data-pick="set-dictionary" data-kind="directory">選択…</button>
       </div>
-      <div class="field-row">
-        <label class="sui-label" for="set-voicedir">音声モデル追加</label>
-        <input type="text" id="set-voicedir" class="sui-input" placeholder="htsvoice を含むディレクトリ">
-        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-voicedir" data-kind="directory">選択…</button>
-      </div>
+      <section class="voice-section">
+        <h3>音声モデル</h3>
+
+        <div id="voice-dropzone" class="voice-dropzone" tabindex="0" role="button"
+             aria-label="htsvoice ファイルをドロップ、またはクリックしてフォルダを選択">
+          <span class="voice-dropzone-glyph" data-icon="voice"></span>
+          <p class="voice-dropzone-title">.htsvoice をここにドロップ</p>
+          <p class="sui-helper-text">クリックしてフォルダを選択することもできます</p>
+        </div>
+        <p id="voice-dropzone-status" class="sui-helper-text voice-dropzone-status"></p>
+
+        <ul id="voice-dir-list" class="voice-dir-list"></ul>
+      </section>
 
       <!-- HIG: the default (confirming) button sits rightmost, cancel to its left. -->
       <menu>

@@ -9,6 +9,7 @@ import {
   setAccent, setPron, mergeWithPrevious, splitAt,
   insertPauseBefore, removePauseBefore, hasPauseBefore, pitchPattern,
 } from '../main/engine/edit';
+import { ICONS, type IconName } from './icons';
 
 interface Settings {
   openJtalk: string | null;
@@ -69,6 +70,61 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * Build an inline SVG icon. Shapes use currentColor, so an icon takes the colour of
+ * whatever it sits in; `sui-icon` is Sashimi's sizing hook.
+ */
+function icon(name: IconName, className = 'sui-icon'): SVGSVGElement {
+  const def = ICONS[name];
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', def.viewBox);
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  if (className) svg.setAttribute('class', className);
+  // The markup is generated at build time from a vendored icon set, never user input.
+  svg.innerHTML = def.path;
+  return svg;
+}
+
+/**
+ * Rewrite macOS key symbols for other platforms, so a Windows user is not told to
+ * press a key their keyboard does not have. Modifiers are re-ordered to the
+ * Ctrl+Shift+Alt convention used outside macOS.
+ */
+function localizeShortcuts(text: string): string {
+  return text.replace(/[⌘⇧⌥⌃]+(\S)?/gu, (match, key: string | undefined) => {
+    const parts: string[] = [];
+    if (match.includes('⌘') || match.includes('⌃')) parts.push('Ctrl');
+    if (match.includes('⇧')) parts.push('Shift');
+    if (match.includes('⌥')) parts.push('Alt');
+    // ⌫ maps to Delete because that is the key the non-macOS accelerator uses.
+    const named: Record<string, string> = { '⏎': 'Enter', '⌫': 'Delete', '␣': 'Space' };
+    if (key) parts.push(named[key] ?? key.toUpperCase());
+    return parts.join('+');
+  });
+}
+
+/** Apply the platform's key names to every tooltip and hint on the page. */
+function localizeShortcutHints(): void {
+  if (api.platform === 'darwin') return;
+  document.querySelectorAll<HTMLElement>('[title]').forEach((node) => {
+    node.title = localizeShortcuts(node.title);
+  });
+  document.querySelectorAll<HTMLElement>('[data-shortcut-text]').forEach((node) => {
+    node.textContent = localizeShortcuts(node.textContent ?? '');
+  });
+}
+
+/** Put icons on every element that declares one via data-icon. */
+function applyIcons(root: ParentNode = document): void {
+  root.querySelectorAll<HTMLElement>('[data-icon]').forEach((node) => {
+    const name = node.dataset.icon as IconName;
+    if (!name || !(name in ICONS) || node.querySelector('svg')) return;
+    node.prepend(icon(name));
+  });
+}
 
 // ---------- state ----------
 
@@ -191,7 +247,8 @@ const baseName = (p: string): string => p.split(/[/\\]/).pop() ?? p;
 
 function updateTitle(): void {
   const name = state.filePath ? baseName(state.filePath) : '無題';
-  document.title = `${state.dirty ? '● ' : ''}${name} — JTalk GUI`;
+  const mark = state.dirty ? '● ' : '';
+  document.title = api.platform === 'darwin' ? `${mark}${name}` : `${mark}${name} - JTalk GUI`;
 }
 
 // ---------- system accent colour ----------
@@ -246,7 +303,7 @@ const PARAM_DEFS: ParamDef[] = [
   { key: 'allPassConstant', label: '声質 α', min: 0, max: 1, step: 0.01, desc: '声道長に相当 (-a)' },
   { key: 'postfilter', label: 'ポストフィルタ', min: 0, max: 1, step: 0.01, desc: '明瞭さ (-b)' },
   { key: 'voicedUnvoicedThreshold', label: '有声/無声閾値', min: 0, max: 1, step: 0.01, desc: 'かすれ具合 (-u)' },
-  { key: 'gvWeightSpectrum', label: 'スペクトル GV', min: 0, max: 3, step: 0.01, desc: '声のはっきりさ (-jm)' },
+  { key: 'gvWeightSpectrum', label: 'スペクトル GV', min: 0, max: 3, step: 0.01, desc: 'スペクトルの GV 重み (-jm)' },
 ];
 
 // ---------- status ----------
@@ -288,12 +345,15 @@ function renderScriptList(): void {
     row.appendChild(text);
 
     if (u.features.length === 0 && u.text) {
-      const warn = el('span', 'unanalyzed', '未解析');
-      warn.title = '再生するには解析が必要です';
+      const warn = el('span', 'unanalyzed');
+      warn.appendChild(icon('warning'));
+      warn.title = '未解析。再生するには解析が必要です';
+      warn.setAttribute('aria-label', '未解析');
       row.appendChild(warn);
     }
 
-    const del = el('button', 'del', '✕');
+    const del = el('button', 'del');
+    del.appendChild(icon('remove'));
     del.title = 'この行を削除';
     del.setAttribute('aria-label', 'この行を削除');
     del.addEventListener('click', (ev) => {
@@ -481,7 +541,9 @@ function renderAccent(): void {
     const empty = el('div', 'empty-state');
     empty.appendChild(el('p', 'empty-title', u?.text ? 'まだ解析していません' : 'テキストを入力してください'));
     empty.appendChild(el('p', 'sui-helper-text',
-      u?.text ? '「解析」または ⌘R でアクセントを表示します。' : '上のテキスト欄に入力して Enter を押してください。'));
+      u?.text
+        ? localizeShortcuts('「解析」または ⌘R でアクセントを表示します。')
+        : '上のテキスト欄に入力して Enter を押してください。'));
     area.appendChild(empty);
     return;
   }
@@ -505,7 +567,8 @@ function makeBoundary(u: Utterance, phrase: AccentPhrase): HTMLElement {
   if (paused) wrap.classList.add('paused');
 
   const merge = el('button', 'boundary-btn merge');
-  merge.textContent = '結合';
+  merge.appendChild(icon('merge', 'boundary-glyph'));
+  merge.setAttribute('aria-label', '前のアクセント句と結合');
   merge.disabled = paused;
   merge.title = paused
     ? 'ポーズを削除すると結合できます'
@@ -516,8 +579,9 @@ function makeBoundary(u: Utterance, phrase: AccentPhrase): HTMLElement {
   });
 
   const pause = el('button', 'boundary-btn pause');
-  pause.textContent = paused ? 'ポーズ削除' : 'ポーズ';
+  pause.appendChild(icon(paused ? 'remove' : 'pause', 'boundary-glyph'));
   pause.title = paused ? 'ここのポーズを削除' : 'ここにポーズを挿入';
+  pause.setAttribute('aria-label', pause.title);
   pause.addEventListener('click', () => {
     const next = paused ? removePauseBefore(u.njd, phrase) : insertPauseBefore(u.njd, phrase);
     void applyEdit(next, 'pause');
@@ -525,7 +589,12 @@ function makeBoundary(u: Utterance, phrase: AccentPhrase): HTMLElement {
   });
 
   const divider = el('div', 'boundary-divider');
-  if (paused) divider.appendChild(el('span', 'pause-mark', 'ポーズ'));
+  if (paused) {
+    const mark = el('span', 'pause-mark');
+    mark.appendChild(icon('pause', 'pause-glyph'));
+    mark.appendChild(el('span', undefined, 'ポーズ'));
+    divider.appendChild(mark);
+  }
 
   wrap.append(divider, el('div', 'boundary-actions'));
   wrap.lastElementChild!.append(merge, pause);
@@ -584,7 +653,7 @@ function makePhrase(u: Utterance, phrase: AccentPhrase): HTMLElement {
       if (phrase.accent > 0 && moraIndex === phrase.accent - 1) chip.classList.add('nucleus');
       chip.appendChild(el('span', 'kana', mora.text));
       chip.appendChild(el('span', 'ph', mora.phonemes.join(' ')));
-      chip.title = `${moraIndex + 1} モーラ目 — クリックでアクセント核（ダブルクリックで読みを編集）`;
+      chip.title = `${moraIndex + 1} モーラ目。クリックでアクセント核、ダブルクリックで読みを編集`;
 
       const at = moraIndex;
       chip.addEventListener('click', () => {
@@ -924,10 +993,20 @@ function setDropOverlay(visible: boolean, message = ''): void {
   if (message) $('drop-message').textContent = message;
 }
 
+/** Recognise what a dropped file will be used for. */
+type DropKind = 'project' | 'voice' | 'text' | 'unknown';
+
+function dropKind(name: string): DropKind {
+  if (name.endsWith('.json')) return 'project';
+  if (name.toLowerCase().endsWith('.htsvoice')) return 'voice';
+  if (/\.(txt|md|csv)$/i.test(name)) return 'text';
+  return 'unknown';
+}
+
 async function handleDroppedFiles(files: File[]): Promise<void> {
-  const project = files.find((f) => f.name.endsWith('.json'));
-  const voices = files.filter((f) => f.name.endsWith('.htsvoice'));
-  const texts = files.filter((f) => /\.(txt|md|csv)$/i.test(f.name));
+  const project = files.find((f) => dropKind(f.name) === 'project');
+  const voices = files.filter((f) => dropKind(f.name) === 'voice');
+  const texts = files.filter((f) => dropKind(f.name) === 'text');
 
   if (project) {
     if (!(await confirmDiscard())) return;
@@ -941,16 +1020,20 @@ async function handleDroppedFiles(files: File[]): Promise<void> {
   }
 
   if (voices.length > 0) {
-    // Register the containing directory so every voice beside it is picked up too.
-    const dir = api.pathForFile(voices[0]).replace(/[/\\][^/\\]+$/, '');
+    // Register each containing directory so sibling voices are picked up too.
     const settings = state.paths?.settings;
     const dirs = new Set(settings?.extraVoiceDirs ?? []);
-    dirs.add(dir);
+    const droppedPaths = voices.map((f) => api.pathForFile(f));
+    for (const p of droppedPaths) dirs.add(dirName(p));
+
     state.paths = await api.saveSettings({ ...settings, extraVoiceDirs: [...dirs] });
-    const added = state.paths.voices.find((v) => v.path === api.pathForFile(voices[0]));
-    fillVoiceSelect(state.paths.voices, added?.path ?? state.voice);
+    // Select the voice that was actually dropped, if discovery found it.
+    const picked = state.paths.voices.find((v) => droppedPaths.includes(v.path));
+    fillVoiceSelect(state.paths.voices, picked?.path ?? state.voice);
     showEngineInfo();
-    setStatus(`音声モデルを追加しました: ${voices[0].name}`);
+    setStatus(picked
+      ? `音声モデルを追加して選択しました: ${picked.name}`
+      : `音声モデルを追加しました（${state.paths.voices.length} 件）`);
     return;
   }
 
@@ -1027,27 +1110,130 @@ function fillVoiceSelect(voices: VoiceInfo[], selected: string | null): void {
   state.voice = sel.value;
 }
 
+/** Voice directories being edited in the settings dialog; committed on save. */
+let pendingVoiceDirs: string[] = [];
+
+/** Strip the filename from a path, tolerating both separators. */
+const dirName = (p: string): string => p.replace(/[/\\][^/\\]+$/, '');
+
+function renderVoiceDirs(): void {
+  const list = $('voice-dir-list');
+  list.textContent = '';
+
+  if (pendingVoiceDirs.length === 0) {
+    list.appendChild(el('p', 'sui-helper-text', '追加した場所はありません。標準のインストール先は常に検索します。'));
+    return;
+  }
+
+  for (const dir of pendingVoiceDirs) {
+    const row = el('li', 'voice-dir');
+    const path = el('span', 'voice-dir-path', dir);
+    path.title = dir;
+
+    const count = state.paths?.voices.filter((v) => v.path.startsWith(dir)).length ?? 0;
+    if (count > 0) row.appendChild(el('span', 'voice-dir-count', `${count}`));
+
+    const remove = el('button', 'voice-dir-remove');
+    remove.type = 'button';
+    remove.appendChild(icon('remove'));
+    remove.title = 'この場所を削除';
+    remove.setAttribute('aria-label', `${dir} を削除`);
+    remove.addEventListener('click', () => {
+      pendingVoiceDirs = pendingVoiceDirs.filter((d) => d !== dir);
+      renderVoiceDirs();
+    });
+
+    row.append(path, remove);
+    list.appendChild(row);
+  }
+}
+
+function addVoiceDirs(dirs: string[]): number {
+  let added = 0;
+  for (const dir of dirs) {
+    if (!dir || pendingVoiceDirs.includes(dir)) continue;
+    pendingVoiceDirs.push(dir);
+    added++;
+  }
+  if (added > 0) renderVoiceDirs();
+  return added;
+}
+
+/** The dashed drop target inside the settings dialog. */
+function wireVoiceDropZone(): void {
+  const zone = $('voice-dropzone');
+
+  const hasVoiceFile = (ev: DragEvent): boolean =>
+    Array.from(ev.dataTransfer?.types ?? []).includes('Files');
+
+  zone.addEventListener('dragover', (ev) => {
+    if (!hasVoiceFile(ev)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    zone.classList.add('dragover');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation(); // keep the window-level handler out of it
+    zone.classList.remove('dragover');
+
+    const files = Array.from(ev.dataTransfer?.files ?? []);
+    const voices = files.filter((f) => dropKind(f.name) === 'voice');
+    if (voices.length === 0) {
+      setVoiceZoneMessage('.htsvoice ファイルをドロップしてください', true);
+      return;
+    }
+    // Register the containing folder, so sibling voices are picked up too.
+    const added = addVoiceDirs(voices.map((f) => dirName(api.pathForFile(f))));
+    setVoiceZoneMessage(added > 0
+      ? `${added} 件の場所を追加しました。「保存」で確定します。`
+      : 'その場所はすでに追加されています。');
+  });
+
+  // Clicking the zone opens a folder picker, for keyboard and non-drag users.
+  const browse = (): void => {
+    void api.pickPath('directory').then((picked) => {
+      if (!picked) return;
+      const added = addVoiceDirs([picked]);
+      setVoiceZoneMessage(added > 0 ? '追加しました。「保存」で確定します。' : 'すでに追加されています。');
+    });
+  };
+  zone.addEventListener('click', browse);
+  zone.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); browse(); }
+  });
+}
+
+function setVoiceZoneMessage(message: string, isError = false): void {
+  const node = $('voice-dropzone-status');
+  node.textContent = message;
+  node.classList.toggle('error', isError);
+}
+
 function openSettings(): void {
   const s = state.paths?.settings;
   ($('set-openjtalk') as HTMLInputElement).value = s?.openJtalk ?? '';
   ($('set-htsengine') as HTMLInputElement).value = s?.htsEngine ?? '';
   ($('set-dictionary') as HTMLInputElement).value = s?.dictionary ?? '';
-  ($('set-voicedir') as HTMLInputElement).value = s?.extraVoiceDirs?.[0] ?? '';
+  pendingVoiceDirs = [...(s?.extraVoiceDirs ?? [])];
+  renderVoiceDirs();
+  setVoiceZoneMessage(`現在 ${state.paths?.voices.length ?? 0} 件の音声モデルを検出しています。`);
   ($('settings-dialog') as HTMLDialogElement).showModal();
 }
 
 async function commitSettings(): Promise<void> {
-  const voiceDir = ($('set-voicedir') as HTMLInputElement).value.trim();
   state.paths = await api.saveSettings({
     openJtalk: ($('set-openjtalk') as HTMLInputElement).value.trim() || null,
     htsEngine: ($('set-htsengine') as HTMLInputElement).value.trim() || null,
     dictionary: ($('set-dictionary') as HTMLInputElement).value.trim() || null,
     voice: state.voice,
-    extraVoiceDirs: voiceDir ? [voiceDir] : [],
+    extraVoiceDirs: pendingVoiceDirs,
   });
   fillVoiceSelect(state.paths.voices, state.voice);
   showEngineInfo();
-  setStatus('設定を保存しました');
+  setStatus(`設定を保存しました（音声モデル ${state.paths.voices.length} 件）`);
 }
 
 function showEngineInfo(): void {
@@ -1061,7 +1247,7 @@ function showEngineInfo(): void {
 
   const info = $('engine-info');
   if (missing.length > 0) {
-    info.textContent = `未検出: ${missing.join(' / ')} — 設定から指定してください`;
+    info.textContent = `未検出: ${missing.join(' / ')}。設定から指定してください`;
     info.classList.add('error');
   } else {
     info.textContent = `open_jtalk + hts_engine / 音声 ${p.voices.length} 件`;
@@ -1112,6 +1298,9 @@ function handleMenuAction(action: MenuAction): void {
 // ---------- wiring ----------
 
 function wire(): void {
+  applyIcons();
+  localizeShortcutHints();
+
   $('btn-analyze').addEventListener('click', () => void analyzeCurrent());
   $('btn-play').addEventListener('click', () => void play());
   $('btn-play-all').addEventListener('click', () => void playAll());
@@ -1157,6 +1346,7 @@ function wire(): void {
   });
 
   $('settings-save').addEventListener('click', () => void commitSettings());
+  wireVoiceDropZone();
 
   document.querySelectorAll<HTMLButtonElement>('[data-pick]').forEach((btn) => {
     btn.addEventListener('click', async () => {
