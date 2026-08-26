@@ -1,6 +1,6 @@
 {
   "name": "jtalk-gui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Japanese TTS GUI with pitch-accent editing, built on Open JTalk and hts_engine",
   "main": "dist/main/main.js",
   "license": "MIT AND BSD-3-Clause",
