@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,9 +32,42 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+/**
+ * Refuse to describe a build Gatekeeper would reject.
+ *
+ * Unsigned builds get made all the time while testing the packaging, and a cask
+ * generated from one looks completely normal: it only fails later, for users,
+ * as a checksum mismatch or a blocked app.
+ */
+function assertNotarized(appDir) {
+  if (!fs.existsSync(appDir)) {
+    console.error(`見つかりません: ${path.relative(root, appDir)}`);
+    process.exit(1);
+  }
+  const info = spawnSync('codesign', ['-dv', '--verbose=4', appDir], { encoding: 'utf8' });
+  const out = `${info.stdout ?? ''}${info.stderr ?? ''}`;
+  const authority = /Authority=(.+)/.exec(out)?.[1] ?? '(不明)';
+
+  const stapled = spawnSync('xcrun', ['stapler', 'validate', appDir], { encoding: 'utf8' });
+
+  if (!authority.startsWith('Developer ID Application') || stapled.status !== 0) {
+    console.error(`${path.relative(root, appDir)} は配布できる状態ではありません。`);
+    console.error(`  署名者: ${authority}`);
+    console.error(`  公証チケット: ${stapled.status === 0 ? '添付済み' : '未添付'}`);
+    console.error('');
+    console.error('未署名や未公証のビルドから cask を作ると、利用者側では');
+    console.error('チェックサム不一致や Gatekeeper のブロックとして現れます。');
+    console.error('npm run dist:mac:release で作り直してください。');
+    process.exit(1);
+  }
+}
+
 const arches = { arm64: 'arm', x64: 'intel' };
+// electron-builder names the native-arch output directory without a suffix.
+const appDirs = { arm64: 'mac-arm64', x64: 'mac' };
 const sums = {};
 for (const [arch, caskArch] of Object.entries(arches)) {
+  assertNotarized(path.join(root, 'release', appDirs[arch], `${pkg.productName}.app`));
   const file = path.join(root, 'release', `${pkg.name}-${version}-${arch}.dmg`);
   const sum = sha256(file);
   if (!sum) {
