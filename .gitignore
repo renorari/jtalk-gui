@@ -12,3 +12,6 @@ build/icon.iconset/
 
 # tap リポジトリをここにクローンした場合の保護（本来は別の場所に置く）
 homebrew-jtalk-gui/
+
+# npm run cask で毎回生成されるため追跡しない（正はtapリポジトリ側）
+homebrew/Casks/*.rb
