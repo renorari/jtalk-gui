@@ -6,8 +6,15 @@ release, so the authoritative copy lives in the tap repository. To publish it:
 
 1. Create a repository named **`homebrew-jtalk-gui`** on the same account that
    hosts this project. The `homebrew-` prefix is what makes it a tap.
-2. Copy `Casks/jtalk-gui.rb` into it, keeping the `Casks/` directory.
-3. Push, then install with:
+2. Clone it **beside this project, not inside it**. A git repository nested in
+   another gets picked up as an embedded repository by `git add -A`:
+
+   ```
+   cd ..
+   gh repo clone renorari/homebrew-jtalk-gui
+   ```
+3. Copy `Casks/jtalk-gui.rb` into it, keeping the `Casks/` directory.
+4. Push, then install with:
 
 ```
 brew tap renorari/jtalk-gui

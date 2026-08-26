@@ -611,8 +611,8 @@ body:not([data-platform="darwin"]) .statusbar { background: var(--sui-color-high
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;      /* keep the tail of a long path visible */
-  text-align: left;
+  /* Shortened in the renderer; `direction: rtl` would reorder the leading
+     separator and render "/Users/me" as "Users/me/". */
 }
 .voice-dir-count {
   flex: none;

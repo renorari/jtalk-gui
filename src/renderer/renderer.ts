@@ -1116,6 +1116,29 @@ let pendingVoiceDirs: string[] = [];
 /** Strip the filename from a path, tolerating both separators. */
 const dirName = (p: string): string => p.replace(/[/\\][^/\\]+$/, '');
 
+/**
+ * Shorten a path from the left, keeping whole components: the tail is the part
+ * that identifies a folder.
+ *
+ * Done here rather than with CSS. `direction: rtl` puts the ellipsis on the
+ * correct side but hands the string to the bidi algorithm, which moves a
+ * leading "/" to the end and renders "/Users/me" as "Users/me/".
+ */
+function shortenPath(full: string, max = 46): string {
+  if (full.length <= max) return full;
+  const sep = full.includes('\\') ? '\\' : '/';
+  const parts = full.split(/[/\\]/).filter(Boolean);
+
+  let tail = '';
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const next = sep + parts[i] + tail;
+    if (next.length + 1 > max) break;
+    tail = next;
+  }
+  // A single component longer than the budget still has to be cut somewhere.
+  return tail ? `…${tail}` : `…${full.slice(-(max - 1))}`;
+}
+
 function renderVoiceDirs(): void {
   const list = $('voice-dir-list');
   list.textContent = '';
@@ -1127,7 +1150,7 @@ function renderVoiceDirs(): void {
 
   for (const dir of pendingVoiceDirs) {
     const row = el('li', 'voice-dir');
-    const path = el('span', 'voice-dir-path', dir);
+    const path = el('span', 'voice-dir-path', shortenPath(dir));
     path.title = dir;
 
     const count = state.paths?.voices.filter((v) => v.path.startsWith(dir)).length ?? 0;
