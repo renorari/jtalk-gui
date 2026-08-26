@@ -2,8 +2,8 @@ cask "jtalk-gui" do
   arch arm: "arm64", intel: "x64"
 
   version "0.1.0"
-  sha256 arm:   "1367270fbb3af335d9ef841a5dc57fa626f728fce031c691393b324fc77ad95a",
-         intel: "bbebf22bcb618389b26333fc658a9f23594e79be41e279024a2bbb562c8eb72a"
+  sha256 arm:   "c70d575bd76762ebb8eed5e0c65656071e138034f8e40177aa966c24e438c914",
+         intel: "1dd802ff99f02524eed822c01e8a57d930990689e9bf91082d24f7ec03717ef4"
 
   url "https://github.com/renorari/jtalk-gui/releases/download/v#{version}/jtalk-gui-#{version}-#{arch}.zip",
       verified: "github.com/renorari/jtalk-gui/"

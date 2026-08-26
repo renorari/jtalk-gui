@@ -3,19 +3,18 @@
 // Run after `npm run dist:mac:release`:
 //   node tools/verify-release.mjs "release/mac-arm64/JTalk GUI.app"
 // Without an argument it checks every .app under release/.
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// codesign and spctl report on stderr even when they succeed, so both streams
+// have to be read; looking at stdout alone finds nothing.
 function run(cmd, args) {
-  try {
-    return { ok: true, out: execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) };
-  } catch (e) {
-    return { ok: false, out: `${e.stdout ?? ''}${e.stderr ?? ''}` };
-  }
+  const r = spawnSync(cmd, args, { encoding: 'utf8' });
+  return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
 function findApps() {
