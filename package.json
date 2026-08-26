@@ -5,17 +5,22 @@
   "main": "dist/main/main.js",
   "license": "BSD-3-Clause",
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run copy-assets",
+    "build": "tsc -p tsconfig.json && node tools/build-renderer.mjs && npm run copy-assets",
     "copy-assets": "node tools/copy-assets.mjs",
-    "watch": "tsc -p tsconfig.json --watch",
-    "start": "npm run build && electron .",
+    "watch": "node tools/build-renderer.mjs --watch",
+    "start": "npm run build && node tools/start.mjs",
     "gen-tables": "node tools/gen-tables.mjs",
     "test": "tsc -p tsconfig.tools.json && node dist-tools/test/validate-labels.js",
-    "typecheck": "tsc -p tsconfig.tools.json --noEmit"
+    "typecheck": "tsc -p tsconfig.tools.json --noEmit",
+    "electron": "node tools/start.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
     "electron": "^33.4.11",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "sashimi-ui": "^2.1.0"
   }
 }

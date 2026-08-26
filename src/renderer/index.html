@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; img-src 'self' data:;">
+  <title>JTalk GUI</title>
+  <!-- Sashimi UI: design tokens (with automatic dark mode) + prefixed components.
+       baseline.css is deliberately skipped: its document styles suit a page, not an app shell. -->
+  <link rel="stylesheet" href="vendor/sashimi-theme.css">
+  <link rel="stylesheet" href="vendor/sashimi.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JTalk<span>GUI</span></div>
+
+    <label class="sui-label inline-field">
+      <span>音声モデル</span>
+      <select id="voice-select" class="sui-select dense"></select>
+    </label>
+
+    <button id="btn-play" class="sui-button dense" disabled>再生</button>
+    <button id="btn-stop" class="sui-button sui-tertiary dense" disabled>停止</button>
+
+    <span class="spacer"></span>
+
+    <button id="btn-export-wav" class="sui-button sui-tertiary dense" disabled>WAV 書き出し</button>
+    <button id="btn-export-lab" class="sui-button sui-tertiary dense" disabled>ラベル書き出し</button>
+    <button id="btn-open" class="sui-button sui-shy dense">開く</button>
+    <button id="btn-save" class="sui-button sui-shy dense">保存</button>
+    <button id="btn-settings" class="sui-button sui-shy dense" title="設定">設定</button>
+  </header>
+
+  <main class="layout">
+    <aside class="pane script-pane">
+      <div class="pane-head">
+        <h2>台本</h2>
+        <button id="btn-add-line" class="sui-button sui-shy icon-only" title="行を追加">＋</button>
+      </div>
+      <ul id="script-list" class="script-list"></ul>
+    </aside>
+
+    <section class="pane editor-pane">
+      <div class="text-row">
+        <textarea id="text-input" class="sui-textarea" rows="2"
+                  placeholder="テキストを入力して Enter で解析（Shift+Enter で改行）"></textarea>
+        <button id="btn-analyze" class="sui-button dense">解析</button>
+      </div>
+
+      <div class="pane-head">
+        <h2>アクセント</h2>
+        <p class="sui-helper-text head-hint">
+          モーラをクリックしてアクセント核を移動 / 区切りをクリックして分割・結合
+        </p>
+      </div>
+
+      <div id="accent-area" class="accent-area">
+        <p class="placeholder">テキストを解析するとアクセント句がここに表示されます。</p>
+      </div>
+    </section>
+
+    <aside class="pane params-pane">
+      <div class="pane-head">
+        <h2>パラメータ</h2>
+        <button id="btn-reset-params" class="sui-button sui-shy icon-only" title="既定値に戻す">⟲</button>
+      </div>
+      <div id="params" class="params"></div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span id="status">準備中…</span>
+    <span class="spacer"></span>
+    <span id="engine-info" class="dim"></span>
+  </footer>
+
+  <dialog id="settings-dialog" class="sui-dialog sui-modal">
+    <form method="dialog" class="settings">
+      <h2>設定</h2>
+      <p class="sui-helper-text">空欄のままにすると自動検出した値を使います。</p>
+
+      <div class="field-row">
+        <label class="sui-label" for="set-openjtalk">open_jtalk</label>
+        <input type="text" id="set-openjtalk" class="sui-input" placeholder="自動検出">
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-openjtalk" data-kind="file">選択</button>
+      </div>
+      <div class="field-row">
+        <label class="sui-label" for="set-htsengine">hts_engine</label>
+        <input type="text" id="set-htsengine" class="sui-input" placeholder="自動検出">
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-htsengine" data-kind="file">選択</button>
+      </div>
+      <div class="field-row">
+        <label class="sui-label" for="set-dictionary">辞書ディレクトリ</label>
+        <input type="text" id="set-dictionary" class="sui-input" placeholder="自動検出">
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-dictionary" data-kind="directory">選択</button>
+      </div>
+      <div class="field-row">
+        <label class="sui-label" for="set-voicedir">音声モデル追加</label>
+        <input type="text" id="set-voicedir" class="sui-input" placeholder="htsvoice を含むディレクトリ">
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-voicedir" data-kind="directory">選択</button>
+      </div>
+
+      <menu>
+        <button value="cancel" class="sui-button sui-tertiary dense">キャンセル</button>
+        <button value="save" class="sui-button dense" id="settings-save">保存</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
