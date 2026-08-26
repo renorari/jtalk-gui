@@ -1,0 +1,14 @@
+{
+  "name": "jtalk-gui",
+  "version": "0.1.0",
+  "description": "Open JTalk / hts_engine GUI with VOICEVOX-like accent editing",
+  "main": "src/main/main.js",
+  "license": "BSD-3-Clause",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/validate-labels.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
