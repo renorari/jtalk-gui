@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Notarization requires the hardened runtime, which blocks the things V8
+       needs unless they are requested explicitly. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+
+  <!-- The app runs open_jtalk and hts_engine as separate processes. Those are
+       not loaded into this process, so no library-validation exception is
+       needed; leaving it out keeps the runtime as strict as possible. -->
+</dict>
+</plist>

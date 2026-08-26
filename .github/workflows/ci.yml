@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Homebrew's open-jtalk ships hts_engine, the dictionary and the voices.
+      - name: Install Open JTalk (macOS)
+        if: runner.os == 'macOS'
+        run: brew install open-jtalk
+
+      # On Debian the engine, dictionary and voices are separate packages. This
+      # also exercises the Linux layout in the path detection tests.
+      - name: Install Open JTalk (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y open-jtalk open-jtalk-mecab-naist-jdic \
+                                  htsengine hts-voice-nitech-jp-atr503-m001
+
+      - run: npm ci
+      - run: npm run typecheck
+
+      # Compares the label port against open_jtalk's own output, exercises the
+      # edit operations, and checks engine discovery on this platform's layout.
+      - run: npm test
+      - run: npm run test:smoke
