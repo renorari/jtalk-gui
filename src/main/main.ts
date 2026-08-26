@@ -169,15 +169,16 @@ function attachDevHooks(win: BrowserWindow): void {
     // Give the renderer time for its first paint and the engine probe.
     setTimeout(async () => {
       try {
-        if (capture) {
-          const image = await win.webContents.capturePage();
-          fs.writeFileSync(capture, image.toPNG());
-          console.log(`captured ${capture}`);
-        }
+        // Evaluate first, so a script can set up the state that gets captured.
         if (evaluate) {
           const source = fs.readFileSync(evaluate, 'utf8');
           const result = await win.webContents.executeJavaScript(source, true);
           console.log(JSON.stringify(result, null, 2));
+        }
+        if (capture) {
+          const image = await win.webContents.capturePage();
+          fs.writeFileSync(capture, image.toPNG());
+          console.log(`captured ${capture}`);
         }
       } catch (e) {
         console.error('dev hook failed:', e);
