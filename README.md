@@ -28,7 +28,8 @@ open_jtalk が内部で行う「テキスト→ラベル」の後半部分を自
 
 ラベルの仕様は HTS Working Group の
 *"An example of context-dependent label format for HMM-based speech synthesis in Japanese"*
-（同梱の `lab_format.pdf`）に準拠しています。
+(2015-12-25) に準拠しています。HTS のデモスクリプトに `lab_format.pdf` として
+同梱されている文書です（再配布条件が明示されていないため、本リポジトリには含めていません）。
 
 ### 移植の正しさ
 
@@ -209,9 +210,26 @@ src/
 
 ## ライセンス
 
-このリポジトリのコードは BSD-3-Clause です。
-`src/main/engine/label.ts` と `tables.ts` は Open JTalk（BSD-3-Clause,
-名古屋工業大学）からの移植を含みます。
-UI には [Sashimi UI](https://github.com/yuto-hasegawa/sashimi-ui)（MIT）を使用しています。
+MIT です（[LICENSE](LICENSE)）。ただし次の 2 ファイルは Open JTalk からの移植なので
+BSD-3-Clause のままです。
 
-Open JTalk 本体・辞書・音声モデルは同梱していません。各配布元のライセンスに従ってください。
+- `src/main/engine/label.ts`
+- `src/main/engine/tables.ts`
+
+この 2 ファイルが BSD-3-Clause の二次的著作物であるため、その第 3 条が本プロジェクトにも
+及びます。HTS working group およびその貢献者の名前を、書面による事前の許可なく
+本プロジェクトの推奨・宣伝に使うことはできません。
+
+`src/renderer/icons.ts` には [@gravity-ui/icons](https://github.com/gravity-ui/icons)（MIT,
+YANDEX LLC）の SVG パスデータが含まれます。ビルド時には
+[Sashimi UI](https://github.com/yuto-hasegawa/sashimi-ui)（MIT）の CSS を同梱します。
+
+詳細は [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) を参照してください。
+
+### 同梱していないもの
+
+Open JTalk 本体・辞書・音声モデルは実行時にユーザーの環境から探すだけで、
+リポジトリにもビルド成果物にも含めていません。
+
+同梱の音声モデル（Mei、NIT ATR503 M001）は **Creative Commons Attribution 3.0** です。
+これらで合成した音声を配布する場合は帰属表示が必要になります。

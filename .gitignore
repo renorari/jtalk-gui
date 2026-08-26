@@ -7,3 +7,4 @@ tmp/
 dist-tools/
 package-lock.json
 *.png
+lab_format.pdf
