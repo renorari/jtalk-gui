@@ -10,8 +10,15 @@
 
 ```
 brew tap renorari/jtalk-gui
+brew trust --cask renorari/jtalk-gui/jtalk-gui
 brew install --cask jtalk-gui
 ```
+
+`brew trust` is required from Homebrew 6.0 onwards: casks in taps outside the
+official ones are not loaded until they are trusted explicitly, and refusing to
+load is the default. Trusted entries are recorded in `~/.homebrew/trust.json`.
+Trusting the tap as a whole (`brew trust renorari/jtalk-gui`) also works, but
+naming the single cask keeps the grant narrower.
 
 The cask declares `depends_on formula: "open-jtalk"`, so Homebrew installs the
 engine, its dictionary and the bundled voices before the app.

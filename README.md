@@ -188,8 +188,13 @@ Apple のテンプレート（1024 キャンバス・824 の本体・角丸半�
 
 ```
 brew tap renorari/jtalk-gui
+brew trust --cask renorari/jtalk-gui/jtalk-gui
 brew install --cask jtalk-gui
 ```
+
+`brew trust` は Homebrew 6.0 以降で必要です。公式以外の tap の cask は
+既定で読み込まれず、明示的に信頼したものだけが対象になります
+（信頼した内容は `~/.homebrew/trust.json` に記録されます）。
 
 cask は `depends_on formula: "open-jtalk"` を宣言しているので、
 エンジン・辞書・音声モデルもまとめて入ります。
