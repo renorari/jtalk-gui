@@ -2,13 +2,20 @@
   "name": "jtalk-gui",
   "version": "0.1.0",
   "description": "Open JTalk / hts_engine GUI with VOICEVOX-like accent editing",
-  "main": "src/main/main.js",
+  "main": "dist/main/main.js",
   "license": "BSD-3-Clause",
   "scripts": {
-    "start": "electron .",
-    "test": "node test/validate-labels.js"
+    "build": "tsc -p tsconfig.json && npm run copy-assets",
+    "copy-assets": "node tools/copy-assets.mjs",
+    "watch": "tsc -p tsconfig.json --watch",
+    "start": "npm run build && electron .",
+    "gen-tables": "node tools/gen-tables.mjs",
+    "test": "tsc -p tsconfig.tools.json && node dist-tools/test/validate-labels.js",
+    "typecheck": "tsc -p tsconfig.tools.json --noEmit"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "@types/node": "^26.3.0",
+    "electron": "^33.4.11",
+    "typescript": "^7.0.2"
   }
 }
