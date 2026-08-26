@@ -31,6 +31,31 @@ jobs:
 
       - run: npm ci
 
+      # Without these the build finishes unsigned and only fails minutes later
+      # at verify:mac, where the cause is far from obvious.
+      - name: Check macOS signing secrets
+        if: runner.os == 'macOS'
+        run: |
+          missing=()
+          [ -n "$CSC_LINK" ] || missing+=(CSC_LINK)
+          [ -n "$CSC_KEY_PASSWORD" ] || missing+=(CSC_KEY_PASSWORD)
+          [ -n "$APPLE_ID" ] || missing+=(APPLE_ID)
+          [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || missing+=(APPLE_APP_SPECIFIC_PASSWORD)
+          [ -n "$APPLE_TEAM_ID" ] || missing+=(APPLE_TEAM_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secrets: ${missing[*]}"
+            echo "macOS builds have to be signed with a Developer ID certificate and"
+            echo "notarized, or Gatekeeper blocks them on other machines."
+            echo "See RELEASING.md for how to produce each value."
+            exit 1
+          fi
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
       - name: Build and publish
         run: npm run ${{ matrix.script }}
         env:
