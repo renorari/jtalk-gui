@@ -17,6 +17,18 @@ files:
 # Predictable, space-free names so a Homebrew cask URL can be templated.
 artifactName: ${name}-${version}-${arch}.${ext}
 
+# The zip target is deflate-only so this barely moves it, but the dmg drops
+# another ~7 MB. Release builds are infrequent enough for the slower pass.
+compression: maximum
+
+# Electron ships 164 locale bundles, about 40 MB of the app. The UI is Japanese
+# with English fallbacks, so the rest are dead weight.
+electronLanguages:
+  - ja
+  - en
+  - en_GB
+  - en_US
+
 mac:
   category: public.app-category.productivity
   icon: build/icon.icns

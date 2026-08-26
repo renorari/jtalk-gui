@@ -34,11 +34,11 @@ function sha256(file) {
 const arches = { arm64: 'arm', x64: 'intel' };
 const sums = {};
 for (const [arch, caskArch] of Object.entries(arches)) {
-  const file = path.join(root, 'release', `${pkg.name}-${version}-${arch}.zip`);
+  const file = path.join(root, 'release', `${pkg.name}-${version}-${arch}.dmg`);
   const sum = sha256(file);
   if (!sum) {
     console.error(`見つかりません: ${path.relative(root, file)}`);
-    console.error('先に `npm run dist:mac` を実行してください。');
+    console.error('先に `npm run dist:mac` を実行してください（cask は dmg を配布します）。');
     process.exit(1);
   }
   sums[caskArch] = sum;
@@ -52,7 +52,7 @@ const cask = `cask "${pkg.name}" do
   sha256 arm:   "${sums.arm}",
          intel: "${sums.intel}"
 
-  url "${repo}/releases/download/v#{version}/${pkg.name}-#{version}-#{arch}.zip",
+  url "${repo}/releases/download/v#{version}/${pkg.name}-#{version}-#{arch}.dmg",
       verified: "${repo.replace(/^https?:\/\//, '')}/"
   name "${pkg.productName}"
   desc "${pkg.description}"
