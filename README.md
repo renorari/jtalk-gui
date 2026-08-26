@@ -48,8 +48,12 @@ npm test
 macOS / Windows / Linux で動きます。
 
 ```
-brew install open-jtalk                 # macOS
-sudo apt install open-jtalk hts-voice-nitech-jp-atr503-m001   # Debian / Ubuntu
+# macOS — open-jtalk includes hts_engine, the dictionary and the voices
+brew install open-jtalk
+
+# Debian / Ubuntu — hts_engine and the dictionary are separate packages
+sudo apt install open-jtalk open-jtalk-mecab-naist-jdic htsengine \
+                 hts-voice-nitech-jp-atr503-m001
 ```
 
 Windows は配布アーカイブを展開して `open_jtalk.exe` を PATH に通すか、
@@ -208,6 +212,11 @@ xattr -dr com.apple.quarantine "/Applications/JTalk GUI.app"
 ```
 
 Developer ID 証明書があれば `npm run dist:mac:release` で公証まで通せます。
+`npm run verify:mac` が Gatekeeper と同じ観点（署名者・Hardened Runtime・
+公証チケットの添付・`spctl` の判定）で検証します。
+
+証明書の作成からタグ push による自動リリースまでの手順は
+[RELEASING.md](RELEASING.md) にまとめてあります。
 
 ## 開発
 

@@ -27,8 +27,15 @@ mac:
       arch: [arm64, x64]
     - target: dmg
       arch: [arm64, x64]
+  # Required for notarization. The entitlements re-enable what V8 needs under the
+  # hardened runtime.
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # The app is distributed outside the App Store, so it is not sandboxed: it has
+  # to run open_jtalk and hts_engine from the user's own Homebrew prefix.
   # Notarization is opt-in: `npm run dist:mac:release` turns it on once a
-  # Developer ID certificate and an app-specific password are in the environment.
+  # Developer ID certificate and notarization credentials are in the environment.
   notarize: false
   # Open JTalk is installed separately (the cask declares it as a dependency),
   # so the app only ever runs binaries the user already has.

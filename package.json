@@ -22,7 +22,8 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:linux": "npm run build && electron-builder --linux",
     "cask": "node tools/gen-cask.mjs",
-    "dist:mac:release": "npm run build && electron-builder --mac -c.mac.notarize=true"
+    "dist:mac:release": "npm run build && electron-builder --mac -c.mac.notarize=true",
+    "verify:mac": "node tools/verify-release.mjs"
   },
   "devDependencies": {
     "@gravity-ui/icons": "^2.22.0",

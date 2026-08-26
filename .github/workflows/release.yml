@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist:mac:release
+          - os: windows-latest
+            script: dist:win
+          - os: ubuntu-latest
+            script: dist:linux
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build and publish
+        run: npm run ${{ matrix.script }}
+        env:
+          # macOS signing: base64 of the Developer ID .p12 and its password.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # macOS notarization.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # Fails the build rather than shipping something Gatekeeper will block.
+      - name: Verify signature and notarization
+        if: runner.os == 'macOS'
+        run: npm run verify:mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            release/*.zip
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: ignore
+
+  publish:
+    needs: build
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - run: mkdir -p release && find artifacts -type f -exec mv {} release/ \;
+
+      - name: Create the GitHub release
+        run: gh release create "${GITHUB_REF_NAME}" release/* --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Regenerate the cask so its checksums match what was just published.
+      - name: Generate the Homebrew cask
+        run: npm run cask
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-cask
+          path: homebrew/Casks/jtalk-gui.rb
