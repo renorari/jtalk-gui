@@ -24,7 +24,8 @@
     "cask": "node tools/gen-cask.mjs",
     "dist:mac:release": "npm run build && electron-builder --mac -c.mac.notarize=true",
     "verify:mac": "node tools/verify-release.mjs",
-    "check:notary": "node tools/check-notary.mjs"
+    "check:notary": "node tools/check-notary.mjs",
+    "demo:shot": "npm run build && node tools/start.mjs --eval tools/demo-state.js --capture docs/screenshot.png"
   },
   "devDependencies": {
     "@gravity-ui/icons": "^2.22.0",

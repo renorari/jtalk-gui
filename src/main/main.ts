@@ -176,6 +176,10 @@ function attachDevHooks(win: BrowserWindow): void {
           console.log(JSON.stringify(result, null, 2));
         }
         if (capture) {
+          // Park the pointer over empty space first: whatever it last hovered
+          // keeps its :hover styling and shows up in the image.
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: 900, y: 950 });
+          await new Promise((r) => setTimeout(r, 150));
           const image = await win.webContents.capturePage();
           fs.writeFileSync(capture, image.toPNG());
           console.log(`captured ${capture}`);
