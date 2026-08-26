@@ -91,6 +91,64 @@ git push --follow-tags
 初回だけ tap リポジトリの作成が必要です。詳細は
 [homebrew/README.md](homebrew/README.md) を参照してください。
 
+## 公証がうまくいかないとき
+
+まず診断してください。認証情報の形式を検証したうえで、Apple に実際に問い合わせます。
+
+```
+npm run check:notary
+```
+
+### `HTTP status code: 401. The account does not exist.`
+
+署名は通っているのに公証だけ 401 になる場合、証明書ではなく
+**Apple ID と App用パスワードの組み合わせ**が原因です。多い順に:
+
+1. **App用パスワードを別の Apple ID で作った。**
+   `APPLE_ID` と、パスワードを発行した Apple ID が一致している必要があります。
+2. **App用パスワードを作り直した。** 古いものは無効になります。
+3. **通常の Apple ID のパスワードを使っている。** 公証には使えません。
+   形式が `xxxx-xxxx-xxxx-xxxx` でなければ間違いです。
+4. **`APPLE_ID` が Developer Program の所属アカウントではない。**
+
+どの Apple ID が対象かは、キーチェーンの証明書から辿れます。
+
+```
+security find-identity -v -p codesigning
+```
+
+`Developer ID Application: 名前 (TEAMID)` の TEAMID が `APPLE_TEAM_ID` と
+一致しているかも確認してください。
+
+### キーチェーンに資格情報を保存する方法
+
+環境変数を毎回 export する代わりに、notarytool に保存できます。
+保存時にその場で認証を検証するので、誤りがあればすぐ分かります。
+
+```
+xcrun notarytool store-credentials "jtalk-gui" \
+  --apple-id "あなたのApple IDメール" \
+  --team-id "XXXXXXXXXX" \
+  --password "xxxx-xxxx-xxxx-xxxx"
+
+export APPLE_KEYCHAIN_PROFILE="jtalk-gui"
+npm run dist:mac:release
+```
+
+### App Store Connect API キーを使う方法
+
+Apple ID 方式がどうしても通らない場合はこちらが確実です。
+App Store Connect → ユーザーとアクセス → 統合 → キー で発行します。
+
+```
+export APPLE_API_KEY="/path/to/AuthKey_XXXXXXXXXX.p8"
+export APPLE_API_KEY_ID="XXXXXXXXXX"
+export APPLE_API_ISSUER="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
+
+`APPLE_ID` 系の変数が残っているとそちらが優先されるので、
+API キーに切り替えるときは `unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD` してください。
+
 ## 公証しない場合
 
 そのままでも配布はできますが、Homebrew は cask のダウンロードを必ず quarantine
