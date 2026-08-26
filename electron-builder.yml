@@ -1,0 +1,59 @@
+appId: io.github.renorari.jtalk-gui
+productName: JTalk GUI
+copyright: Copyright (c) 2026 renorari
+
+directories:
+  output: release
+  buildResources: build
+
+# The renderer's only third-party CSS is copied into dist/ during the build, so
+# the packaged app needs no node_modules at all.
+files:
+  - dist/**/*
+  - package.json
+  - LICENSE
+  - THIRD-PARTY-NOTICES.md
+
+# Predictable, space-free names so a Homebrew cask URL can be templated.
+artifactName: ${name}-${version}-${arch}.${ext}
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  darkModeSupport: true
+  minimumSystemVersion: "11.0"
+  target:
+    - target: zip
+      arch: [arm64, x64]
+    - target: dmg
+      arch: [arm64, x64]
+  # Notarization is opt-in: `npm run dist:mac:release` turns it on once a
+  # Developer ID certificate and an app-specific password are in the environment.
+  notarize: false
+  # Open JTalk is installed separately (the cask declares it as a dependency),
+  # so the app only ever runs binaries the user already has.
+  extendInfo:
+    NSHumanReadableCopyright: Copyright (c) 2026 renorari
+
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  icon: build/icon.png
+  category: AudioVideo
+  synopsis: Open JTalk / hts_engine GUI with accent editing
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]

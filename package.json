@@ -1,7 +1,7 @@
 {
   "name": "jtalk-gui",
   "version": "0.1.0",
-  "description": "Open JTalk / hts_engine GUI with VOICEVOX-like accent editing",
+  "description": "Japanese TTS GUI with pitch-accent editing, built on Open JTalk and hts_engine",
   "main": "dist/main/main.js",
   "license": "MIT AND BSD-3-Clause",
   "scripts": {
@@ -15,16 +15,32 @@
     "electron": "node tools/start.mjs",
     "test:smoke": "tsc -p tsconfig.tools.json && node dist-tools/test/smoke-pipeline.js",
     "test:ui": "npm run build && node tools/start.mjs --eval test/ui/interactions.js",
-    "gen-icons": "node tools/gen-icons.mjs"
+    "gen-icons": "node tools/gen-icons.mjs",
+    "gen-icon": "node tools/gen-icon.mjs",
+    "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "dist:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "cask": "node tools/gen-cask.mjs",
+    "dist:mac:release": "npm run build && electron-builder --mac -c.mac.notarize=true"
   },
   "devDependencies": {
     "@gravity-ui/icons": "^2.22.0",
     "@types/node": "^26.3.0",
     "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
-    "typescript": "^7.0.2"
-  },
-  "dependencies": {
+    "typescript": "^7.0.2",
     "sashimi-ui": "^2.1.0"
+  },
+  "productName": "JTalk GUI",
+  "author": {
+    "name": "renorari",
+    "email": "info@hint.co.jp"
+  },
+  "homepage": "https://github.com/renorari/jtalk-gui",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/renorari/jtalk-gui.git"
   }
 }
