@@ -94,9 +94,21 @@ export interface Utterance {
   text: string;
   njd: NjdNode[];
   phrases: AccentPhrase[];
+  /** Full-context labels derived from `njd`; empty until the line is analyzed. */
+  features: string[];
   params: SynthParams;
   voice: string | null;
 }
+
+/** Actions the native menu sends to the renderer. */
+export type MenuAction =
+  | 'undo' | 'redo'
+  | 'new-line' | 'duplicate-line' | 'delete-line'
+  | 'move-line-up' | 'move-line-down'
+  | 'open' | 'save' | 'save-as'
+  | 'analyze' | 'play' | 'play-all' | 'stop'
+  | 'export-wav' | 'export-wav-all' | 'export-labels'
+  | 'settings';
 
 export const DEFAULT_PARAMS: SynthParams = {
   speechSpeedRate: 1.0,

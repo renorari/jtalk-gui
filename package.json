@@ -10,10 +10,11 @@
     "watch": "node tools/build-renderer.mjs --watch",
     "start": "npm run build && node tools/start.mjs",
     "gen-tables": "node tools/gen-tables.mjs",
-    "test": "tsc -p tsconfig.tools.json && node dist-tools/test/validate-labels.js",
+    "test": "tsc -p tsconfig.tools.json && node dist-tools/test/validate-labels.js && node dist-tools/test/edit-ops.js && node dist-tools/test/paths-crossplatform.js",
     "typecheck": "tsc -p tsconfig.tools.json --noEmit",
     "electron": "node tools/start.mjs",
-    "test:smoke": "tsc -p tsconfig.tools.json && node dist-tools/test/smoke-pipeline.js"
+    "test:smoke": "tsc -p tsconfig.tools.json && node dist-tools/test/smoke-pipeline.js",
+    "test:ui": "npm run build && node tools/start.mjs --eval test/ui/interactions.js"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",

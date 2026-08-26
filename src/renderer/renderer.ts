@@ -1,12 +1,13 @@
-// Renderer: script list, accent editor, parameter panel, playback.
+// Renderer: script list, accent editor, parameter panel, playback, undo/redo.
 // All engine work happens in the main process; this talks to it through window.api.
 
 import type {
-  AccentPhrase, EngineConfig, EnginePaths, NjdNode, SynthParams, Utterance, VoiceInfo,
+  AccentPhrase, EngineConfig, EnginePaths, MenuAction, NjdNode, SynthParams, Utterance, VoiceInfo,
 } from '../shared/types';
 import { DEFAULT_PARAMS } from '../shared/types';
 import {
-  setAccent, mergeWithPrevious, splitAt, insertPauseBefore, removePauseBefore, hasPauseBefore, pitchPattern,
+  setAccent, setPron, mergeWithPrevious, splitAt,
+  insertPauseBefore, removePauseBefore, hasPauseBefore, pitchPattern,
 } from '../main/engine/edit';
 
 interface Settings {
@@ -17,18 +18,31 @@ interface Settings {
   extraVoiceDirs: string[];
 }
 
-interface DetectResult extends EnginePaths { settings: Settings }
+interface DetectResult extends EnginePaths {
+  settings: Settings;
+  /** The user's system accent colour as #rrggbb, when the platform reports one. */
+  accentColor: string | null;
+}
 
 interface Api {
+  platform: string;
   detect(): Promise<DetectResult>;
-  saveSettings(s: Settings): Promise<DetectResult>;
+  saveSettings(s: Partial<Settings>): Promise<DetectResult>;
   analyze(text: string, cfg: Partial<EngineConfig>): Promise<{ njd: NjdNode[]; phrases: AccentPhrase[]; features: string[] }>;
   rebuild(njd: NjdNode[]): Promise<{ phrases: AccentPhrase[]; features: string[] }>;
   synthesize(features: string[], cfg: Partial<EngineConfig>, params: SynthParams): Promise<ArrayBuffer>;
   saveWav(data: ArrayBuffer, defaultName: string): Promise<string | null>;
+  saveWavBatch(items: { name: string; data: ArrayBuffer }[]): Promise<{ dir: string; count: number } | null>;
   saveText(text: string, defaultName: string, filters: { name: string; extensions: string[] }[]): Promise<string | null>;
+  writeText(filePath: string, text: string): Promise<string>;
   openText(filters: { name: string; extensions: string[] }[]): Promise<{ path: string; text: string } | null>;
+  readText(filePath: string): Promise<{ path: string; text: string } | null>;
   pickPath(kind: 'file' | 'directory'): Promise<string | null>;
+  confirm(message: string, detail: string): Promise<boolean>;
+  setDirty(dirty: boolean): void;
+  pathForFile(file: File): string;
+  onMenuAction(cb: (action: MenuAction) => void): void;
+  onAccentColor(cb: (color: string | null) => void): void;
 }
 
 declare global {
@@ -61,21 +75,26 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 interface State {
   utterances: Utterance[];
   selected: number;
-  features: string[];
   paths: DetectResult | null;
   voice: string | null;
+  filePath: string | null;
+  dirty: boolean;
   playing: boolean;
   busy: boolean;
+  /** njd index of the word whose reading is being edited inline, if any. */
+  editingWord: number | null;
 }
 
 const state: State = {
   utterances: [],
   selected: -1,
-  features: [],
   paths: null,
   voice: null,
+  filePath: null,
+  dirty: false,
   playing: false,
   busy: false,
+  editingWord: null,
 };
 
 let nextId = 1;
@@ -86,6 +105,125 @@ const current = (): Utterance | null => state.utterances[state.selected] ?? null
 function config(): Partial<EngineConfig> {
   const u = current();
   return { voice: u?.voice ?? state.voice };
+}
+
+// ---------- undo / redo ----------
+
+interface Snapshot { utterances: Utterance[]; selected: number }
+
+const HISTORY_LIMIT = 200;
+
+const history: { past: Snapshot[]; future: Snapshot[]; lastLabel: string; lastAt: number } = {
+  past: [], future: [], lastLabel: '', lastAt: 0,
+};
+
+const snapshot = (): Snapshot => ({
+  utterances: structuredClone(state.utterances),
+  selected: state.selected,
+});
+
+/**
+ * Record the state *before* a change.
+ *
+ * `coalesceMs` merges rapid repeats of the same kind of edit into one undo step,
+ * so typing a word or dragging a slider does not fill the history with keystrokes.
+ */
+function pushHistory(label: string, coalesceMs = 0): void {
+  const now = Date.now();
+  if (coalesceMs > 0 && label === history.lastLabel && now - history.lastAt < coalesceMs) {
+    history.lastAt = now;
+    markDirty();
+    return;
+  }
+  history.past.push(snapshot());
+  if (history.past.length > HISTORY_LIMIT) history.past.shift();
+  history.future.length = 0;
+  history.lastLabel = label;
+  history.lastAt = now;
+  markDirty();
+}
+
+function applySnapshot(s: Snapshot): void {
+  state.utterances = s.utterances;
+  state.selected = Math.min(s.selected, state.utterances.length - 1);
+  state.editingWord = null;
+  syncTextInput();
+  renderScriptList();
+  renderAccent();
+  renderParams();
+  updateButtons();
+}
+
+function undo(): void {
+  if (history.past.length === 0) { setStatus('取り消せる操作がありません'); return; }
+  history.future.push(snapshot());
+  applySnapshot(history.past.pop()!);
+  history.lastLabel = '';
+  markDirty();
+  setStatus('取り消しました');
+}
+
+function redo(): void {
+  if (history.future.length === 0) { setStatus('やり直せる操作がありません'); return; }
+  history.past.push(snapshot());
+  applySnapshot(history.future.pop()!);
+  history.lastLabel = '';
+  markDirty();
+  setStatus('やり直しました');
+}
+
+function markDirty(): void {
+  if (!state.dirty) {
+    state.dirty = true;
+    api.setDirty(true);
+  }
+  updateTitle();
+}
+
+function markClean(): void {
+  state.dirty = false;
+  api.setDirty(false);
+  updateTitle();
+}
+
+/** Basename of a path, tolerating both separators so Windows paths work too. */
+const baseName = (p: string): string => p.split(/[/\\]/).pop() ?? p;
+
+function updateTitle(): void {
+  const name = state.filePath ? baseName(state.filePath) : '無題';
+  document.title = `${state.dirty ? '● ' : ''}${name} — JTalk GUI`;
+}
+
+// ---------- system accent colour ----------
+
+const relativeLuminance = (hex: string): number => {
+  const to = (i: number): number => {
+    const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * to(0) + 0.7152 * to(1) + 0.0722 * to(2);
+};
+
+/**
+ * Re-point Sashimi's key colour at the accent colour chosen in System Settings, and
+ * derive the secondary/tertiary tints from it so the theme stays coherent.
+ */
+function applyAccentColor(color: string | null): void {
+  const root = document.documentElement;
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color)) {
+    root.style.removeProperty('--sui-color-key-primary');
+    root.style.removeProperty('--sui-color-on-key-primary');
+    root.style.removeProperty('--sui-color-key-secondary');
+    root.style.removeProperty('--sui-color-key-tertiary');
+    return;
+  }
+  root.style.setProperty('--sui-color-key-primary', color);
+  root.style.setProperty('--sui-color-on-key-primary',
+    relativeLuminance(color) > 0.55 ? '#000000' : '#ffffff');
+  root.style.setProperty('--sui-color-key-secondary',
+    `color-mix(in srgb, ${color} 70%, var(--sui-color-surface))`);
+  root.style.setProperty('--sui-color-key-tertiary',
+    `color-mix(in srgb, ${color} 18%, var(--sui-color-surface))`);
 }
 
 // ---------- parameter definitions ----------
@@ -121,7 +259,6 @@ function setStatus(message: string, isError = false): void {
 
 function errorMessage(e: unknown): string {
   if (e instanceof Error) {
-    // Electron wraps main-process errors; keep only the useful tail.
     const m = e.message.match(/Error: (.*)$/s);
     return (m ? m[1] : e.message).trim();
   }
@@ -130,12 +267,17 @@ function errorMessage(e: unknown): string {
 
 // ---------- script list ----------
 
+let dragSourceIndex: number | null = null;
+
 function renderScriptList(): void {
   const list = $('script-list');
   list.textContent = '';
 
   state.utterances.forEach((u, i) => {
     const li = el('li');
+    li.draggable = true;
+    li.dataset.index = String(i);
+
     const row = el('div', 'sui-menu-item script-row');
     if (i === state.selected) row.classList.add('sui-active');
 
@@ -145,8 +287,15 @@ function renderScriptList(): void {
     if (!u.text) text.classList.add('empty');
     row.appendChild(text);
 
+    if (u.features.length === 0 && u.text) {
+      const warn = el('span', 'unanalyzed', '未解析');
+      warn.title = '再生するには解析が必要です';
+      row.appendChild(warn);
+    }
+
     const del = el('button', 'del', '✕');
     del.title = 'この行を削除';
+    del.setAttribute('aria-label', 'この行を削除');
     del.addEventListener('click', (ev) => {
       ev.stopPropagation();
       removeUtterance(i);
@@ -155,45 +304,109 @@ function renderScriptList(): void {
 
     row.addEventListener('click', () => selectUtterance(i));
     li.appendChild(row);
+
+    // --- drag to reorder ---
+    li.addEventListener('dragstart', (ev) => {
+      dragSourceIndex = i;
+      li.classList.add('dragging');
+      ev.dataTransfer?.setData('text/plain', String(i));
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+    });
+    li.addEventListener('dragend', () => {
+      dragSourceIndex = null;
+      li.classList.remove('dragging');
+      list.querySelectorAll('.drop-before, .drop-after')
+        .forEach((n) => n.classList.remove('drop-before', 'drop-after'));
+    });
+    li.addEventListener('dragover', (ev) => {
+      if (dragSourceIndex === null) return; // a file drag, not a reorder
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+      const rect = li.getBoundingClientRect();
+      const after = ev.clientY > rect.top + rect.height / 2;
+      li.classList.toggle('drop-after', after);
+      li.classList.toggle('drop-before', !after);
+    });
+    li.addEventListener('dragleave', () => li.classList.remove('drop-before', 'drop-after'));
+    li.addEventListener('drop', (ev) => {
+      if (dragSourceIndex === null) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const rect = li.getBoundingClientRect();
+      const after = ev.clientY > rect.top + rect.height / 2;
+      moveUtterance(dragSourceIndex, after ? i + 1 : i);
+    });
+
     list.appendChild(li);
   });
 }
 
-function addUtterance(text = ''): void {
-  state.utterances.push({
+function moveUtterance(from: number, to: number): void {
+  if (from === to || from + 1 === to) return;
+  pushHistory('move-line');
+  const [item] = state.utterances.splice(from, 1);
+  const target = to > from ? to - 1 : to;
+  state.utterances.splice(target, 0, item);
+  state.selected = target;
+  renderScriptList();
+  syncTextInput();
+  setStatus(`${from + 1} 行目を ${target + 1} 行目へ移動しました`);
+}
+
+function newUtterance(text = ''): Utterance {
+  return {
     id: makeId(),
     text,
     njd: [],
     phrases: [],
+    features: [],
     params: { ...DEFAULT_PARAMS },
     voice: state.voice,
-  });
+  };
+}
+
+function addUtterance(text = '', recordHistory = true): void {
+  if (recordHistory) pushHistory('add-line');
+  state.utterances.push(newUtterance(text));
   selectUtterance(state.utterances.length - 1);
 }
 
+function duplicateUtterance(): void {
+  const u = current();
+  if (!u) return;
+  pushHistory('duplicate-line');
+  const copy = structuredClone(u);
+  copy.id = makeId();
+  state.utterances.splice(state.selected + 1, 0, copy);
+  selectUtterance(state.selected + 1);
+  setStatus('行を複製しました');
+}
+
 function removeUtterance(index: number): void {
+  if (index < 0 || index >= state.utterances.length) return;
+  pushHistory('delete-line');
   state.utterances.splice(index, 1);
   if (state.utterances.length === 0) {
-    state.selected = -1;
-    addUtterance();
+    state.utterances.push(newUtterance());
+    selectUtterance(0);
     return;
   }
   selectUtterance(Math.min(index, state.utterances.length - 1));
+  setStatus('行を削除しました');
+}
+
+function syncTextInput(): void {
+  ($('text-input') as HTMLTextAreaElement).value = current()?.text ?? '';
 }
 
 function selectUtterance(index: number): void {
   state.selected = index;
-  const u = current();
-  ($('text-input') as HTMLTextAreaElement).value = u?.text ?? '';
-  state.features = [];
+  state.editingWord = null;
+  syncTextInput();
   renderScriptList();
   renderParams();
-  if (u && u.njd.length > 0) {
-    void rebuild(u.njd);
-  } else {
-    renderAccent();
-    updateButtons();
-  }
+  renderAccent();
+  updateButtons();
 }
 
 // ---------- analysis & rebuild ----------
@@ -202,13 +415,15 @@ async function analyzeCurrent(): Promise<void> {
   const u = current();
   if (!u) return;
   const text = ($('text-input') as HTMLTextAreaElement).value.trim();
+
+  if (u.text !== text || u.features.length === 0) pushHistory('analyze');
   u.text = text;
   renderScriptList();
 
   if (!text) {
     u.njd = [];
     u.phrases = [];
-    state.features = [];
+    u.features = [];
     renderAccent();
     updateButtons();
     return;
@@ -221,14 +436,15 @@ async function analyzeCurrent(): Promise<void> {
     const res = await api.analyze(text, config());
     u.njd = res.njd;
     u.phrases = res.phrases;
-    state.features = res.features;
+    u.features = res.features;
     renderAccent();
+    renderScriptList();
     setStatus(`${res.phrases.length} アクセント句 / ${res.features.length} ラベル`);
   } catch (e) {
     setStatus(errorMessage(e), true);
     u.njd = [];
     u.phrases = [];
-    state.features = [];
+    u.features = [];
     renderAccent();
   } finally {
     state.busy = false;
@@ -236,15 +452,17 @@ async function analyzeCurrent(): Promise<void> {
   }
 }
 
-/** Re-derive phrases and labels after an edit. Pure, so it is cheap. */
-async function rebuild(njd: NjdNode[]): Promise<void> {
+/** Re-derive phrases and labels after an accent edit. Pure, so it is cheap. */
+async function applyEdit(njd: NjdNode[], label: string): Promise<void> {
   const u = current();
   if (!u) return;
+  pushHistory(label);
   u.njd = njd;
+  state.editingWord = null;
   try {
     const res = await api.rebuild(njd);
     u.phrases = res.phrases;
-    state.features = res.features;
+    u.features = res.features;
     renderAccent();
     updateButtons();
   } catch (e) {
@@ -260,75 +478,63 @@ function renderAccent(): void {
 
   const u = current();
   if (!u || u.phrases.length === 0) {
-    area.appendChild(el('p', 'placeholder', 'テキストを解析するとアクセント句がここに表示されます。'));
+    const empty = el('div', 'empty-state');
+    empty.appendChild(el('p', 'empty-title', u?.text ? 'まだ解析していません' : 'テキストを入力してください'));
+    empty.appendChild(el('p', 'sui-helper-text',
+      u?.text ? '「解析」または ⌘R でアクセントを表示します。' : '上のテキスト欄に入力して Enter を押してください。'));
+    area.appendChild(empty);
     return;
   }
 
-  // Group the phrases into their breath groups, each rendered as a card.
-  let group: HTMLElement | null = null;
-  let groupIndex = -1;
+  const flow = el('div', 'phrase-flow');
 
   u.phrases.forEach((phrase, pi) => {
-    if (phrase.breathGroup !== groupIndex) {
-      groupIndex = phrase.breathGroup;
-      group = el('div', 'sui-card breath-group');
-      group.appendChild(el('div', 'bg-label', `ブレスグループ ${groupIndex + 1}`));
-      area.appendChild(group);
-    }
-
-    // Between two phrases in the same group: a gap that merges them, plus a
-    // control for the pause that separates breath groups.
-    if (pi > 0 && u.phrases[pi - 1].breathGroup === phrase.breathGroup) {
-      group!.appendChild(makeBoundaryGap(phrase));
-    }
-    group!.appendChild(makePhrase(phrase, pi));
+    // Boundary controls live between every pair of adjacent accent phrases, so a
+    // pause can always be put back after it is removed.
+    if (pi > 0) flow.appendChild(makeBoundary(u, phrase));
+    flow.appendChild(makePhrase(u, phrase));
   });
 
-  // Pause controls sit between breath groups.
-  renderPauseControls(area, u);
+  area.appendChild(flow);
 }
 
-function renderPauseControls(area: HTMLElement, u: Utterance): void {
-  const cards = area.querySelectorAll('.breath-group');
-  cards.forEach((card, i) => {
-    if (i === 0) return;
-    const firstPhrase = u.phrases.find((p) => p.breathGroup === i);
-    if (!firstPhrase) return;
+/** The control between two accent phrases: merge them, or toggle a pause. */
+function makeBoundary(u: Utterance, phrase: AccentPhrase): HTMLElement {
+  const paused = hasPauseBefore(u.njd, phrase);
+  const wrap = el('div', 'boundary');
+  if (paused) wrap.classList.add('paused');
 
-    const chip = el('button', 'sui-chip pause-chip', hasPauseBefore(u.njd, firstPhrase) ? 'ポーズあり ✕' : 'ポーズ追加');
-    chip.title = hasPauseBefore(u.njd, firstPhrase) ? 'このポーズを削除' : 'ここにポーズを挿入';
-    chip.addEventListener('click', () => {
-      const next = hasPauseBefore(u.njd, firstPhrase)
-        ? removePauseBefore(u.njd, firstPhrase)
-        : insertPauseBefore(u.njd, firstPhrase);
-      void rebuild(next);
-    });
-
-    const holder = el('div', 'pause-holder');
-    holder.style.display = 'flex';
-    holder.style.justifyContent = 'center';
-    holder.style.margin = '-6px 0 6px';
-    holder.appendChild(chip);
-    card.parentNode?.insertBefore(holder, card);
+  const merge = el('button', 'boundary-btn merge');
+  merge.textContent = '結合';
+  merge.disabled = paused;
+  merge.title = paused
+    ? 'ポーズを削除すると結合できます'
+    : '前のアクセント句と結合';
+  merge.addEventListener('click', () => {
+    void applyEdit(mergeWithPrevious(u.njd, phrase), 'merge');
+    setStatus('アクセント句を結合しました');
   });
-}
 
-/** The gap between two accent phrases; clicking it merges the right into the left. */
-function makeBoundaryGap(phrase: AccentPhrase): HTMLElement {
-  const gap = el('button', 'gap boundary');
-  gap.title = '前のアクセント句と結合';
-  gap.addEventListener('click', () => {
-    const u = current();
-    if (!u) return;
-    void rebuild(mergeWithPrevious(u.njd, phrase));
+  const pause = el('button', 'boundary-btn pause');
+  pause.textContent = paused ? 'ポーズ削除' : 'ポーズ';
+  pause.title = paused ? 'ここのポーズを削除' : 'ここにポーズを挿入';
+  pause.addEventListener('click', () => {
+    const next = paused ? removePauseBefore(u.njd, phrase) : insertPauseBefore(u.njd, phrase);
+    void applyEdit(next, 'pause');
+    setStatus(paused ? 'ポーズを削除しました' : 'ポーズを挿入しました');
   });
-  return gap;
+
+  const divider = el('div', 'boundary-divider');
+  if (paused) divider.appendChild(el('span', 'pause-mark', 'ポーズ'));
+
+  wrap.append(divider, el('div', 'boundary-actions'));
+  wrap.lastElementChild!.append(merge, pause);
+  return wrap;
 }
 
-function makePhrase(phrase: AccentPhrase, phraseIndex: number): HTMLElement {
+function makePhrase(u: Utterance, phrase: AccentPhrase): HTMLElement {
   const wrap = el('div', 'phrase');
 
-  // header: accent type badge
   const head = el('div', 'phrase-head');
   const badge = el('span', 'sui-chip', phrase.accent === 0 ? '平板' : `${phrase.accent}型`);
   if (phrase.accent === 0) badge.classList.add('heiban');
@@ -344,52 +550,90 @@ function makePhrase(phrase: AccentPhrase, phraseIndex: number): HTMLElement {
   const pattern = pitchPattern(phrase.accent, phrase.moraCount);
   wrap.appendChild(makeContour(pattern));
 
-  // moras, with a clickable gap at every internal mora boundary
-  const moras = el('div', 'moras');
-  const wordStarts = new Set<number>();
-  {
-    let acc = 0;
-    for (const w of phrase.words) { wordStarts.add(acc); acc += w.moraCount; }
-  }
+  const row = el('div', 'moras');
+  let moraIndex = 0;
 
-  phrase.moras.forEach((mora, mi) => {
-    if (mi > 0) {
-      const gap = el('button', 'gap');
-      if (wordStarts.has(mi)) gap.classList.add('word');
-      gap.title = 'ここで分割';
-      gap.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const u = current();
-        if (!u) return;
-        void rebuild(splitAt(u.njd, phrase, mi));
-      });
-      moras.appendChild(gap);
+  phrase.words.forEach((word, wi) => {
+    // Inline reading editor replaces the word's moras while active.
+    if (state.editingWord === word.njdIndex) {
+      row.appendChild(makeReadingEditor(u, word.njdIndex));
+      moraIndex += word.moraCount;
+      return;
     }
 
-    const chip = el('button', 'mora');
-    chip.classList.add(pattern[mi] ? 'high' : 'low');
-    // The nucleus is the last high mora before the fall.
-    if (phrase.accent > 0 && mi === phrase.accent - 1) chip.classList.add('nucleus');
-    chip.appendChild(el('span', 'kana', mora.text));
-    chip.appendChild(el('span', 'ph', mora.phonemes.join(' ')));
-    chip.title = `${mi + 1} モーラ目 — クリックでアクセント核に設定（再クリックで平板）`;
-    chip.addEventListener('click', () => {
-      const u = current();
-      if (!u) return;
-      // Clicking the current nucleus clears it back to heiban.
-      const next = phrase.accent === mi + 1 ? 0 : mi + 1;
-      void rebuild(setAccent(u.njd, phrase, next));
-    });
-    moras.appendChild(chip);
+    for (let k = 0; k < word.moraCount; k++, moraIndex++) {
+      const mora = phrase.moras[moraIndex];
+      if (!mora) continue;
+
+      if (moraIndex > 0) {
+        const gap = el('button', 'gap');
+        if (k === 0) gap.classList.add('word'); // morpheme boundary, shown as a hint
+        gap.title = 'ここでアクセント句を分割';
+        gap.setAttribute('aria-label', 'ここでアクセント句を分割');
+        const at = moraIndex;
+        gap.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          void applyEdit(splitAt(u.njd, phrase, at), 'split');
+          setStatus('アクセント句を分割しました');
+        });
+        row.appendChild(gap);
+      }
+
+      const chip = el('button', 'mora');
+      chip.classList.add(pattern[moraIndex] ? 'high' : 'low');
+      if (phrase.accent > 0 && moraIndex === phrase.accent - 1) chip.classList.add('nucleus');
+      chip.appendChild(el('span', 'kana', mora.text));
+      chip.appendChild(el('span', 'ph', mora.phonemes.join(' ')));
+      chip.title = `${moraIndex + 1} モーラ目 — クリックでアクセント核（ダブルクリックで読みを編集）`;
+
+      const at = moraIndex;
+      chip.addEventListener('click', () => {
+        void applyEdit(setAccent(u.njd, phrase, phrase.accent === at + 1 ? 0 : at + 1), 'accent');
+      });
+      chip.addEventListener('dblclick', (ev) => {
+        ev.preventDefault();
+        state.editingWord = word.njdIndex;
+        renderAccent();
+      });
+      row.appendChild(chip);
+    }
+    void wi;
   });
 
-  wrap.appendChild(moras);
-  wrap.addEventListener('click', () => {
-    document.querySelectorAll('.phrase.selected').forEach((n) => n.classList.remove('selected'));
-    wrap.classList.add('selected');
-  });
-  void phraseIndex;
+  wrap.appendChild(row);
   return wrap;
+}
+
+/** Inline katakana editor for one morpheme's reading. */
+function makeReadingEditor(u: Utterance, njdIndex: number): HTMLElement {
+  const box = el('div', 'reading-editor');
+  const input = el('input', 'sui-input reading-input');
+  input.type = 'text';
+  input.value = u.njd[njdIndex]?.pron ?? '';
+  input.title = 'カタカナで読みを入力（ー と ’ が使えます）';
+  input.setAttribute('aria-label', '読みを編集');
+
+  const commit = (): void => {
+    const value = input.value.trim();
+    if (value && value !== u.njd[njdIndex]?.pron) {
+      void applyEdit(setPron(u.njd, njdIndex, value), 'pron');
+      setStatus('読みを変更しました');
+    } else {
+      state.editingWord = null;
+      renderAccent();
+    }
+  };
+
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); commit(); }
+    if (ev.key === 'Escape') { ev.preventDefault(); state.editingWord = null; renderAccent(); }
+  });
+  input.addEventListener('blur', commit);
+
+  box.appendChild(input);
+  // Focus after the element lands in the document.
+  requestAnimationFrame(() => { input.focus(); input.select(); });
+  return box;
 }
 
 /** Draw the high/low pitch line above a phrase's moras. */
@@ -399,6 +643,7 @@ function makeContour(pattern: boolean[]): HTMLElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', `0 0 ${Math.max(n, 1) * 10} 10`);
   svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('aria-hidden', 'true');
 
   const yFor = (high: boolean): number => (high ? 2.5 : 7.5);
   const points: string[] = [];
@@ -416,7 +661,6 @@ function makeContour(pattern: boolean[]): HTMLElement {
   line.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(line);
 
-  // a dot at the centre of each mora
   pattern.forEach((high, i) => {
     const dot = document.createElementNS(SVG_NS, 'circle');
     dot.setAttribute('cx', String(i * 10 + 5));
@@ -427,7 +671,6 @@ function makeContour(pattern: boolean[]): HTMLElement {
     svg.appendChild(dot);
   });
 
-  box.style.color = 'var(--app-pitch-high)';
   box.appendChild(svg);
   return box;
 }
@@ -459,6 +702,8 @@ function renderParams(): void {
     slider.value = String(raw);
     slider.addEventListener('input', () => {
       const v = Number(slider.value);
+      // One undo step per gesture rather than per pixel of travel.
+      pushHistory(`param:${def.key}`, 700);
       u.params[def.key] = v;
       value.textContent = def.format ? def.format(v) : v.toFixed(2);
     });
@@ -473,95 +718,291 @@ function renderParams(): void {
 
 let audio: HTMLAudioElement | null = null;
 let audioUrl: string | null = null;
+/** Bumped on every stop so an in-flight "play all" loop knows to abandon. */
+let playToken = 0;
 
 function releaseAudio(): void {
   if (audio) { audio.pause(); audio = null; }
   if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
 }
 
-async function play(): Promise<void> {
-  const u = current();
-  if (!u || state.features.length === 0) return;
-  state.busy = true;
-  updateButtons();
-  setStatus('合成中…');
-  try {
-    const wav = await api.synthesize(state.features, config(), u.params);
+function playBuffer(wav: ArrayBuffer): Promise<void> {
+  return new Promise((resolve, reject) => {
     releaseAudio();
     audioUrl = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
     audio = new Audio(audioUrl);
-    audio.addEventListener('ended', () => { state.playing = false; updateButtons(); setStatus('再生完了'); });
-    state.playing = true;
-    await audio.play();
-    setStatus('再生中…');
-  } catch (e) {
-    setStatus(errorMessage(e), true);
-    state.playing = false;
-  } finally {
+    audio.addEventListener('ended', () => resolve());
+    audio.addEventListener('error', () => reject(new Error('再生できませんでした')));
+    void audio.play().catch(reject);
+  });
+}
+
+async function play(): Promise<void> {
+  const u = current();
+  if (!u || u.features.length === 0) return;
+  const token = ++playToken;
+  state.busy = true;
+  state.playing = true;
+  updateButtons();
+  setStatus('合成中…');
+  try {
+    const wav = await api.synthesize(u.features, config(), u.params);
+    if (token !== playToken) return;
     state.busy = false;
     updateButtons();
+    setStatus('再生中…');
+    await playBuffer(wav);
+    if (token === playToken) setStatus('再生完了');
+  } catch (e) {
+    setStatus(errorMessage(e), true);
+  } finally {
+    if (token === playToken) {
+      state.playing = false;
+      state.busy = false;
+      updateButtons();
+    }
+  }
+}
+
+async function playAll(): Promise<void> {
+  const lines = state.utterances.filter((u) => u.features.length > 0);
+  if (lines.length === 0) { setStatus('解析済みの行がありません', true); return; }
+
+  const token = ++playToken;
+  state.playing = true;
+  updateButtons();
+  try {
+    for (let i = 0; i < lines.length; i++) {
+      if (token !== playToken) return;
+      const u = lines[i];
+      setStatus(`再生中… (${i + 1}/${lines.length})`);
+      const wav = await api.synthesize(u.features, { voice: u.voice ?? state.voice }, u.params);
+      if (token !== playToken) return;
+      await playBuffer(wav);
+    }
+    if (token === playToken) setStatus('すべて再生しました');
+  } catch (e) {
+    setStatus(errorMessage(e), true);
+  } finally {
+    if (token === playToken) {
+      state.playing = false;
+      updateButtons();
+    }
   }
 }
 
 function stop(): void {
-  if (audio) { audio.pause(); audio.currentTime = 0; }
+  playToken++;
+  releaseAudio();
   state.playing = false;
+  state.busy = false;
   updateButtons();
-  setStatus('停止');
+  setStatus('停止しました');
 }
 
-// ---------- export & project files ----------
+// ---------- export ----------
+
+const safeName = (text: string): string =>
+  (text || 'output').slice(0, 24).replace(/[/\\:*?"<>|\s]/g, '_');
 
 async function exportWav(): Promise<void> {
   const u = current();
-  if (!u || state.features.length === 0) return;
+  if (!u || u.features.length === 0) return;
   setStatus('書き出し中…');
   try {
-    const wav = await api.synthesize(state.features, config(), u.params);
-    const name = (u.text || 'output').slice(0, 24).replace(/[/\\:*?"<>|]/g, '_');
-    const saved = await api.saveWav(wav, `${name}.wav`);
+    const wav = await api.synthesize(u.features, config(), u.params);
+    const saved = await api.saveWav(wav, `${safeName(u.text)}.wav`);
     setStatus(saved ? `保存しました: ${saved}` : 'キャンセルしました');
   } catch (e) {
     setStatus(errorMessage(e), true);
   }
 }
 
+async function exportWavAll(): Promise<void> {
+  const lines = state.utterances.filter((u) => u.features.length > 0);
+  if (lines.length === 0) { setStatus('解析済みの行がありません', true); return; }
+  state.busy = true;
+  updateButtons();
+  try {
+    const items: { name: string; data: ArrayBuffer }[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      setStatus(`合成中… (${i + 1}/${lines.length})`);
+      const u = lines[i];
+      const wav = await api.synthesize(u.features, { voice: u.voice ?? state.voice }, u.params);
+      items.push({ name: `${String(i + 1).padStart(3, '0')}_${safeName(u.text)}.wav`, data: wav });
+    }
+    const res = await api.saveWavBatch(items);
+    setStatus(res ? `${res.count} 件を ${res.dir} に保存しました` : 'キャンセルしました');
+  } catch (e) {
+    setStatus(errorMessage(e), true);
+  } finally {
+    state.busy = false;
+    updateButtons();
+  }
+}
+
 async function exportLabels(): Promise<void> {
   const u = current();
-  if (!u || state.features.length === 0) return;
-  const name = (u.text || 'output').slice(0, 24).replace(/[/\\:*?"<>|]/g, '_');
-  const saved = await api.saveText(state.features.join('\n') + '\n', `${name}.lab`,
+  if (!u || u.features.length === 0) return;
+  const saved = await api.saveText(u.features.join('\n') + '\n', `${safeName(u.text)}.lab`,
     [{ name: 'HTS full-context label', extensions: ['lab'] }]);
   setStatus(saved ? `保存しました: ${saved}` : 'キャンセルしました');
 }
 
-async function saveProject(): Promise<void> {
+// ---------- project files ----------
+
+function serialize(): string {
   const u = current();
   if (u) u.text = ($('text-input') as HTMLTextAreaElement).value;
-  const data = JSON.stringify({ version: 1, utterances: state.utterances }, null, 2);
-  const saved = await api.saveText(data, 'script.jtalk.json',
-    [{ name: 'JTalk GUI project', extensions: ['json'] }]);
-  setStatus(saved ? `保存しました: ${saved}` : 'キャンセルしました');
+  return JSON.stringify({ version: 1, utterances: state.utterances }, null, 2);
+}
+
+async function saveProject(forceDialog = false): Promise<void> {
+  const data = serialize();
+  try {
+    if (state.filePath && !forceDialog) {
+      await api.writeText(state.filePath, data);
+      markClean();
+      setStatus(`保存しました: ${state.filePath}`);
+      return;
+    }
+    const saved = await api.saveText(data, 'script.jtalk.json',
+      [{ name: 'JTalk GUI project', extensions: ['json'] }]);
+    if (saved) {
+      state.filePath = saved;
+      markClean();
+      setStatus(`保存しました: ${saved}`);
+    } else {
+      setStatus('キャンセルしました');
+    }
+  } catch (e) {
+    setStatus(errorMessage(e), true);
+  }
+}
+
+async function confirmDiscard(): Promise<boolean> {
+  if (!state.dirty) return true;
+  return api.confirm('保存していない変更があります', '続行すると編集内容は失われます。');
+}
+
+function loadProjectData(text: string, filePath: string | null): void {
+  const parsed = JSON.parse(text) as { utterances?: Utterance[] };
+  if (!Array.isArray(parsed.utterances) || parsed.utterances.length === 0) {
+    throw new Error('台本が空です');
+  }
+  state.utterances = parsed.utterances.map((u) => ({
+    ...newUtterance(),
+    ...u,
+    id: makeId(),
+    features: u.features ?? [],
+    params: { ...DEFAULT_PARAMS, ...u.params },
+  }));
+  state.filePath = filePath;
+  history.past.length = 0;
+  history.future.length = 0;
+  selectUtterance(0);
+  markClean();
 }
 
 async function openProject(): Promise<void> {
+  if (!(await confirmDiscard())) return;
   const opened = await api.openText([{ name: 'JTalk GUI project', extensions: ['json'] }]);
   if (!opened) return;
   try {
-    const parsed = JSON.parse(opened.text) as { utterances?: Utterance[] };
-    if (!Array.isArray(parsed.utterances) || parsed.utterances.length === 0) {
-      throw new Error('台本が空です');
-    }
-    state.utterances = parsed.utterances.map((u) => ({
-      ...u,
-      id: makeId(),
-      params: { ...DEFAULT_PARAMS, ...u.params },
-    }));
-    selectUtterance(0);
+    loadProjectData(opened.text, opened.path);
     setStatus(`読み込みました: ${opened.path}`);
   } catch (e) {
     setStatus(`読み込めませんでした: ${errorMessage(e)}`, true);
   }
+}
+
+// ---------- drag & drop of files ----------
+
+function setDropOverlay(visible: boolean, message = ''): void {
+  const overlay = $('drop-overlay');
+  overlay.classList.toggle('visible', visible);
+  if (message) $('drop-message').textContent = message;
+}
+
+async function handleDroppedFiles(files: File[]): Promise<void> {
+  const project = files.find((f) => f.name.endsWith('.json'));
+  const voices = files.filter((f) => f.name.endsWith('.htsvoice'));
+  const texts = files.filter((f) => /\.(txt|md|csv)$/i.test(f.name));
+
+  if (project) {
+    if (!(await confirmDiscard())) return;
+    try {
+      loadProjectData(await project.text(), api.pathForFile(project));
+      setStatus(`読み込みました: ${project.name}`);
+    } catch (e) {
+      setStatus(`読み込めませんでした: ${errorMessage(e)}`, true);
+    }
+    return;
+  }
+
+  if (voices.length > 0) {
+    // Register the containing directory so every voice beside it is picked up too.
+    const dir = api.pathForFile(voices[0]).replace(/[/\\][^/\\]+$/, '');
+    const settings = state.paths?.settings;
+    const dirs = new Set(settings?.extraVoiceDirs ?? []);
+    dirs.add(dir);
+    state.paths = await api.saveSettings({ ...settings, extraVoiceDirs: [...dirs] });
+    const added = state.paths.voices.find((v) => v.path === api.pathForFile(voices[0]));
+    fillVoiceSelect(state.paths.voices, added?.path ?? state.voice);
+    showEngineInfo();
+    setStatus(`音声モデルを追加しました: ${voices[0].name}`);
+    return;
+  }
+
+  if (texts.length > 0) {
+    const lines: string[] = [];
+    for (const f of texts) {
+      lines.push(...(await f.text()).split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+    }
+    if (lines.length === 0) { setStatus('読み込める行がありませんでした', true); return; }
+    pushHistory('import-text');
+    // Replace a single untouched empty line rather than appending after it.
+    if (state.utterances.length === 1 && !state.utterances[0].text) state.utterances.length = 0;
+    for (const line of lines) state.utterances.push(newUtterance(line));
+    selectUtterance(state.utterances.length - lines.length);
+    setStatus(`${lines.length} 行を読み込みました。⌘R で解析できます。`);
+    return;
+  }
+
+  setStatus('対応していないファイルです（.json / .txt / .htsvoice）', true);
+}
+
+function wireFileDrop(): void {
+  let depth = 0;
+
+  const isFileDrag = (ev: DragEvent): boolean =>
+    !!ev.dataTransfer && Array.from(ev.dataTransfer.types).includes('Files');
+
+  window.addEventListener('dragenter', (ev) => {
+    if (!isFileDrag(ev) || dragSourceIndex !== null) return;
+    ev.preventDefault();
+    depth++;
+    setDropOverlay(true, '台本 (.json) / テキスト (.txt) / 音声モデル (.htsvoice) をドロップ');
+  });
+  window.addEventListener('dragover', (ev) => {
+    if (!isFileDrag(ev) || dragSourceIndex !== null) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) setDropOverlay(false);
+  });
+  window.addEventListener('drop', (ev) => {
+    depth = 0;
+    setDropOverlay(false);
+    if (!isFileDrag(ev) || dragSourceIndex !== null) return;
+    ev.preventDefault();
+    const files = Array.from(ev.dataTransfer?.files ?? []);
+    if (files.length > 0) void handleDroppedFiles(files);
+  });
 }
 
 // ---------- settings ----------
@@ -597,14 +1038,13 @@ function openSettings(): void {
 
 async function commitSettings(): Promise<void> {
   const voiceDir = ($('set-voicedir') as HTMLInputElement).value.trim();
-  const next: Settings = {
+  state.paths = await api.saveSettings({
     openJtalk: ($('set-openjtalk') as HTMLInputElement).value.trim() || null,
     htsEngine: ($('set-htsengine') as HTMLInputElement).value.trim() || null,
     dictionary: ($('set-dictionary') as HTMLInputElement).value.trim() || null,
     voice: state.voice,
     extraVoiceDirs: voiceDir ? [voiceDir] : [],
-  };
-  state.paths = await api.saveSettings(next);
+  });
   fillVoiceSelect(state.paths.voices, state.voice);
   showEngineInfo();
   setStatus('設定を保存しました');
@@ -632,12 +1072,41 @@ function showEngineInfo(): void {
 // ---------- buttons ----------
 
 function updateButtons(): void {
-  const ready = state.features.length > 0 && !state.busy;
+  const u = current();
+  const ready = !!u && u.features.length > 0 && !state.busy;
+  const anyReady = state.utterances.some((x) => x.features.length > 0);
+
   ($('btn-play') as HTMLButtonElement).disabled = !ready || state.playing;
+  ($('btn-play-all') as HTMLButtonElement).disabled = !anyReady || state.playing || state.busy;
   ($('btn-stop') as HTMLButtonElement).disabled = !state.playing;
   ($('btn-export-wav') as HTMLButtonElement).disabled = !ready;
   ($('btn-export-lab') as HTMLButtonElement).disabled = !ready;
   ($('btn-analyze') as HTMLButtonElement).disabled = state.busy;
+}
+
+// ---------- menu & shortcuts ----------
+
+function handleMenuAction(action: MenuAction): void {
+  switch (action) {
+    case 'undo': undo(); break;
+    case 'redo': redo(); break;
+    case 'new-line': addUtterance(); break;
+    case 'duplicate-line': duplicateUtterance(); break;
+    case 'delete-line': removeUtterance(state.selected); break;
+    case 'move-line-up': moveUtterance(state.selected, state.selected - 1); break;
+    case 'move-line-down': moveUtterance(state.selected, state.selected + 2); break;
+    case 'open': void openProject(); break;
+    case 'save': void saveProject(false); break;
+    case 'save-as': void saveProject(true); break;
+    case 'analyze': void analyzeCurrent(); break;
+    case 'play': state.playing ? stop() : void play(); break;
+    case 'play-all': void playAll(); break;
+    case 'stop': stop(); break;
+    case 'export-wav': void exportWav(); break;
+    case 'export-wav-all': void exportWavAll(); break;
+    case 'export-labels': void exportLabels(); break;
+    case 'settings': openSettings(); break;
+  }
 }
 
 // ---------- wiring ----------
@@ -645,10 +1114,11 @@ function updateButtons(): void {
 function wire(): void {
   $('btn-analyze').addEventListener('click', () => void analyzeCurrent());
   $('btn-play').addEventListener('click', () => void play());
+  $('btn-play-all').addEventListener('click', () => void playAll());
   $('btn-stop').addEventListener('click', stop);
   $('btn-export-wav').addEventListener('click', () => void exportWav());
   $('btn-export-lab').addEventListener('click', () => void exportLabels());
-  $('btn-save').addEventListener('click', () => void saveProject());
+  $('btn-save').addEventListener('click', () => void saveProject(false));
   $('btn-open').addEventListener('click', () => void openProject());
   $('btn-add-line').addEventListener('click', () => addUtterance());
   $('btn-settings').addEventListener('click', openSettings);
@@ -656,6 +1126,7 @@ function wire(): void {
   $('btn-reset-params').addEventListener('click', () => {
     const u = current();
     if (!u) return;
+    pushHistory('reset-params');
     u.params = { ...DEFAULT_PARAMS };
     renderParams();
     setStatus('パラメータを既定値に戻しました');
@@ -671,12 +1142,14 @@ function wire(): void {
   textInput.addEventListener('input', () => {
     const u = current();
     if (!u) return;
+    pushHistory('type', 800);
     u.text = textInput.value;
     renderScriptList();
   });
 
   ($('voice-select') as HTMLSelectElement).addEventListener('change', (ev) => {
     const value = (ev.target as HTMLSelectElement).value;
+    pushHistory('voice');
     state.voice = value;
     const u = current();
     if (u) u.voice = value;
@@ -693,10 +1166,27 @@ function wire(): void {
     });
   });
 
+  api.onMenuAction(handleMenuAction);
+  api.onAccentColor(applyAccentColor);
+  // Same entry point the native menu uses, reachable from the UI test driver.
+  window.addEventListener('__menu', (ev) => handleMenuAction((ev as CustomEvent).detail as MenuAction));
+  wireFileDrop();
+
+  // Shortcuts that are not worth a menu entry.
   window.addEventListener('keydown', (ev) => {
-    if (ev.key === ' ' && ev.target === document.body) {
+    const inField = ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement;
+
+    if (ev.key === 'Escape' && state.playing) { stop(); return; }
+
+    if (!inField && ev.key === ' ') {
       ev.preventDefault();
       state.playing ? stop() : void play();
+      return;
+    }
+    if (!inField && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
+      ev.preventDefault();
+      const next = state.selected + (ev.key === 'ArrowDown' ? 1 : -1);
+      if (next >= 0 && next < state.utterances.length) selectUtterance(next);
     }
   });
 
@@ -704,18 +1194,29 @@ function wire(): void {
 }
 
 async function init(): Promise<void> {
+  document.body.dataset.platform = api.platform;
   wire();
+  updateTitle();
+
   try {
     state.paths = await api.detect();
+    applyAccentColor(state.paths.accentColor);
     fillVoiceSelect(state.paths.voices, state.paths.settings.voice);
     showEngineInfo();
     setStatus(state.paths.voices.length > 0 ? 'テキストを入力してください' : '音声モデルが見つかりません');
   } catch (e) {
     setStatus(errorMessage(e), true);
   }
-  addUtterance('こんにちは。アクセントを編集できます。');
+
+  state.utterances.push(newUtterance('こんにちは。アクセントを編集できます。'));
+  selectUtterance(0);
   renderParams();
   if (state.paths && state.paths.voices.length > 0) await analyzeCurrent();
+
+  // The seeded line is not a user edit.
+  history.past.length = 0;
+  history.future.length = 0;
+  markClean();
 }
 
 void init();

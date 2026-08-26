@@ -12,58 +12,62 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">JTalk<span>GUI</span></div>
+  <!-- HIG: a unified toolbar sitting under the inset title bar. The bar itself is a
+       window drag region; controls opt back out. -->
+  <header class="toolbar">
+    <div class="toolbar-group playback">
+      <button id="btn-play" class="sui-button dense" disabled title="再生 (⌘⏎)">再生</button>
+      <button id="btn-play-all" class="sui-button sui-tertiary dense" disabled title="すべて再生 (⇧⌘⏎)">すべて再生</button>
+      <button id="btn-stop" class="sui-button sui-tertiary dense" disabled title="停止 (esc)">停止</button>
+    </div>
 
-    <label class="sui-label inline-field">
+    <label class="toolbar-field">
       <span>音声モデル</span>
       <select id="voice-select" class="sui-select dense"></select>
     </label>
 
-    <button id="btn-play" class="sui-button dense" disabled>再生</button>
-    <button id="btn-stop" class="sui-button sui-tertiary dense" disabled>停止</button>
-
     <span class="spacer"></span>
 
-    <button id="btn-export-wav" class="sui-button sui-tertiary dense" disabled>WAV 書き出し</button>
-    <button id="btn-export-lab" class="sui-button sui-tertiary dense" disabled>ラベル書き出し</button>
-    <button id="btn-open" class="sui-button sui-shy dense">開く</button>
-    <button id="btn-save" class="sui-button sui-shy dense">保存</button>
-    <button id="btn-settings" class="sui-button sui-shy dense" title="設定">設定</button>
+    <div class="toolbar-group">
+      <button id="btn-export-wav" class="sui-button sui-tertiary dense" disabled title="WAV を書き出す (⌘E)">WAV</button>
+      <button id="btn-export-lab" class="sui-button sui-tertiary dense" disabled title="ラベルを書き出す">ラベル</button>
+      <button id="btn-open" class="sui-button sui-shy dense" title="開く (⌘O)">開く</button>
+      <button id="btn-save" class="sui-button sui-shy dense" title="保存 (⌘S)">保存</button>
+      <button id="btn-settings" class="sui-button sui-shy dense" title="設定 (⌘,)">設定</button>
+    </div>
   </header>
 
   <main class="layout">
-    <aside class="pane script-pane">
+    <aside class="pane sidebar">
       <div class="pane-head">
         <h2>台本</h2>
-        <button id="btn-add-line" class="sui-button sui-shy icon-only" title="行を追加">＋</button>
+        <button id="btn-add-line" class="sui-button sui-shy icon-only" title="行を追加 (⌘N)" aria-label="行を追加">＋</button>
       </div>
       <ul id="script-list" class="script-list"></ul>
+      <p class="sidebar-hint sui-helper-text">ドラッグで並べ替え / テキストや .htsvoice をドロップ</p>
     </aside>
 
     <section class="pane editor-pane">
       <div class="text-row">
         <textarea id="text-input" class="sui-textarea" rows="2"
                   placeholder="テキストを入力して Enter で解析（Shift+Enter で改行）"></textarea>
-        <button id="btn-analyze" class="sui-button dense">解析</button>
+        <button id="btn-analyze" class="sui-button dense" title="解析 (⌘R)">解析</button>
       </div>
 
       <div class="pane-head">
         <h2>アクセント</h2>
         <p class="sui-helper-text head-hint">
-          モーラをクリックしてアクセント核を移動 / 区切りをクリックして分割・結合
+          モーラ = アクセント核 / ダブルクリック = 読み / 区切り = 分割・結合・ポーズ
         </p>
       </div>
 
-      <div id="accent-area" class="accent-area">
-        <p class="placeholder">テキストを解析するとアクセント句がここに表示されます。</p>
-      </div>
+      <div id="accent-area" class="accent-area"></div>
     </section>
 
     <aside class="pane params-pane">
       <div class="pane-head">
         <h2>パラメータ</h2>
-        <button id="btn-reset-params" class="sui-button sui-shy icon-only" title="既定値に戻す">⟲</button>
+        <button id="btn-reset-params" class="sui-button sui-shy icon-only" title="既定値に戻す" aria-label="既定値に戻す">⟲</button>
       </div>
       <div id="params" class="params"></div>
     </aside>
@@ -75,6 +79,12 @@
     <span id="engine-info" class="dim"></span>
   </footer>
 
+  <div id="drop-overlay" class="drop-overlay">
+    <div class="drop-panel">
+      <p id="drop-message" class="drop-title"></p>
+    </div>
+  </div>
+
   <dialog id="settings-dialog" class="sui-dialog sui-modal">
     <form method="dialog" class="settings">
       <h2>設定</h2>
@@ -83,24 +93,25 @@
       <div class="field-row">
         <label class="sui-label" for="set-openjtalk">open_jtalk</label>
         <input type="text" id="set-openjtalk" class="sui-input" placeholder="自動検出">
-        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-openjtalk" data-kind="file">選択</button>
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-openjtalk" data-kind="file">選択…</button>
       </div>
       <div class="field-row">
         <label class="sui-label" for="set-htsengine">hts_engine</label>
         <input type="text" id="set-htsengine" class="sui-input" placeholder="自動検出">
-        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-htsengine" data-kind="file">選択</button>
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-htsengine" data-kind="file">選択…</button>
       </div>
       <div class="field-row">
         <label class="sui-label" for="set-dictionary">辞書ディレクトリ</label>
         <input type="text" id="set-dictionary" class="sui-input" placeholder="自動検出">
-        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-dictionary" data-kind="directory">選択</button>
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-dictionary" data-kind="directory">選択…</button>
       </div>
       <div class="field-row">
         <label class="sui-label" for="set-voicedir">音声モデル追加</label>
         <input type="text" id="set-voicedir" class="sui-input" placeholder="htsvoice を含むディレクトリ">
-        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-voicedir" data-kind="directory">選択</button>
+        <button type="button" class="sui-button sui-tertiary dense" data-pick="set-voicedir" data-kind="directory">選択…</button>
       </div>
 
+      <!-- HIG: the default (confirming) button sits rightmost, cancel to its left. -->
       <menu>
         <button value="cancel" class="sui-button sui-tertiary dense">キャンセル</button>
         <button value="save" class="sui-button dense" id="settings-save">保存</button>
