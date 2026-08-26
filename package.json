@@ -12,7 +12,8 @@
     "gen-tables": "node tools/gen-tables.mjs",
     "test": "tsc -p tsconfig.tools.json && node dist-tools/test/validate-labels.js",
     "typecheck": "tsc -p tsconfig.tools.json --noEmit",
-    "electron": "node tools/start.mjs"
+    "electron": "node tools/start.mjs",
+    "test:smoke": "tsc -p tsconfig.tools.json && node dist-tools/test/smoke-pipeline.js"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
