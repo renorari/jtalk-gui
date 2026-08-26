@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Open JTalk / hts_engine GUI with VOICEVOX-like accent editing",
   "main": "dist/main/main.js",
-  "license": "BSD-3-Clause",
+  "license": "MIT AND BSD-3-Clause",
   "scripts": {
     "build": "tsc -p tsconfig.json && node tools/build-renderer.mjs && npm run copy-assets",
     "copy-assets": "node tools/copy-assets.mjs",

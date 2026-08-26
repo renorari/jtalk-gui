@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// This file is a port of Open JTalk 1.11 and is NOT covered by the repository's
+// MIT license. See THIRD-PARTY-NOTICES.md for the full terms.
+//
+// Copyright (c) 2008-2016  Nagoya Institute of Technology
+//                          Department of Computer Science
+// All rights reserved.
+//
 // Port of Open JTalk 1.11 njd2jpcommon + jpcommon_label.
 //
 // Given the NJD morpheme list that open_jtalk's text analysis produced (optionally
@@ -6,7 +15,8 @@
 // can be diffed line for line -- see test/validate-labels.ts.
 //
 // Field layout follows "An example of context-dependent label format for HMM-based
-// speech synthesis in Japanese" (HTS Working Group, 2015-12-25); see lab_format.pdf.
+// speech synthesis in Japanese" (HTS Working Group, 2015-12-25), distributed as
+// lab_format.pdf with the HTS demo scripts.
 // Note the spec names b2/b3 "inflected forms"/"conjugation type", but the C emits
 // pos-ctype_cform in that order. We follow the C, since the shipped voices were
 // trained against labels the C produced.
