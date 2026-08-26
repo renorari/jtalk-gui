@@ -158,6 +158,57 @@ Apple の Human Interface Guidelines に沿っています。
 macOS 以外では通常のタイトルバーと不透明な背景に自動で切り替わり、
 フォントも Segoe UI / Yu Gothic UI / Noto Sans CJK にフォールバックします。
 
+## 配布
+
+### パッケージのビルド
+
+```
+npm run dist:mac      # release/jtalk-gui-<version>-{arm64,x64}.{zip,dmg}
+npm run dist:win      # NSIS インストーラ
+npm run dist:linux    # AppImage と deb
+```
+
+アイコンは `build/icon.svg` が元で、`npm run gen-icon` で `.icns` / `.ico` / `.png`
+を生成します（librsvg と、Windows 用に ImageMagick が必要）。生成済みのファイルは
+コミットしてあるので、通常のビルドにこれらのツールは要りません。
+
+元の SVG は全面正方形です。macOS は `.icns` を自動で角丸にしないため、生成時に
+Apple のテンプレート（1024 キャンバス・824 の本体・角丸半径 185.4）へ収めています。
+`build/jtalk-gui.icon/` は macOS 26 の Icon Composer 形式の原本で、
+現状どのビルドからも参照していませんが編集用に残してあります。
+
+### Homebrew
+
+サードパーティ tap として配布できます。手順と cask の生成は
+[homebrew/README.md](homebrew/README.md) を参照してください。
+
+```
+brew tap renorari/jtalk-gui
+brew install --cask jtalk-gui
+```
+
+cask は `depends_on formula: "open-jtalk"` を宣言しているので、
+エンジン・辞書・音声モデルもまとめて入ります。
+
+公式の homebrew-cask は Gatekeeper チェックの通過（Developer ID 署名と公証）と
+知名度が条件なので、公開直後は対象になりません。homebrew/core は `.app` を主成果物
+とするものを受け付けないため、こちらも対象外です。
+
+### 署名について
+
+`npm run dist:mac` は `CSC_IDENTITY_AUTO_DISCOVERY=false` を設定しています。
+キーチェーンの **Apple Development** 証明書を誤って拾わないためです。この証明書は
+ローカル開発用で、他人の Mac では Gatekeeper に拒否されます。
+
+公証なしで配布した場合、Homebrew はダウンロードを必ず quarantine するため、
+利用者は初回に次のコマンドが必要になります。
+
+```
+xattr -dr com.apple.quarantine "/Applications/JTalk GUI.app"
+```
+
+Developer ID 証明書があれば `npm run dist:mac:release` で公証まで通せます。
+
 ## 開発
 
 ```
@@ -167,6 +218,8 @@ npm test           # ラベル移植の検証 + 編集操作 + パス検出
 npm run test:smoke # 解析→編集→合成の通し確認
 npm run test:ui    # Electron を起動して実 DOM を操作する結合テスト
 npm run typecheck
+npm run gen-icon   # build/icon.svg から .icns / .ico / .png を生成
+npm run cask       # release/ の成果物から Homebrew cask を生成
 ```
 
 `npm run test:ui` は実際にウィンドウを開き、モーラのクリックや Undo、

@@ -5,6 +5,7 @@ out/
 .DS_Store
 tmp/
 dist-tools/
-package-lock.json
-*.png
+/*.png
 lab_format.pdf
+release/
+build/icon.iconset/
