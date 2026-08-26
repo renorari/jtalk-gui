@@ -9,3 +9,6 @@ dist-tools/
 lab_format.pdf
 release/
 build/icon.iconset/
+
+# tap リポジトリをここにクローンした場合の保護（本来は別の場所に置く）
+homebrew-jtalk-gui/
