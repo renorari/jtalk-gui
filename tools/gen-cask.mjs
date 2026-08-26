@@ -59,7 +59,9 @@ const cask = `cask "${pkg.name}" do
   homepage "${repo}"
 
   depends_on formula: "open-jtalk"
-  depends_on macos: ">= :big_sur"
+  # A bare symbol already means "or newer" to Homebrew; ">= :big_sur" is a
+  # style offence (Homebrew/OSDependsOn).
+  depends_on macos: :big_sur
 
   app "${pkg.productName}.app"
 
